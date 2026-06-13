@@ -41,20 +41,22 @@ public class VssRollbackEnvironment implements RollbackEnvironment
 
   public String getRollbackOperationName() {  return VcsBundle.message("changes.action.rollback.text");  }
 
-  public void rollbackChanges(List<Change> changes, final List<VcsException> errors, @NotNull final RollbackProgressListener listener)
+  @Override
+  public void rollbackChanges(List<? extends Change> changes, final List<VcsException> errors, @NotNull final RollbackProgressListener listener)
   {
+    List<Change> changeList = new ArrayList<>(changes);
     List<String> renamedFolders = new ArrayList<>();
     HashSet<FilePath> processedFiles = new HashSet<>();
 
     listener.determinate();
-    
-    rollbackRenamedFolders( changes, processedFiles, renamedFolders, listener);
-    rollbackNew( changes, processedFiles, listener);
-    rollbackDeleted( changes, processedFiles, errors, listener);
-    rollbackChanged( changes, processedFiles, errors, listener);
+
+    rollbackRenamedFolders(changeList, processedFiles, renamedFolders, listener);
+    rollbackNew(changeList, processedFiles, listener);
+    rollbackDeleted(changeList, processedFiles, errors, listener);
+    rollbackChanged(changeList, processedFiles, errors, listener);
 
     for( String path : renamedFolders )
-      host.renamedFolders.remove( VcsUtil.getCanonicalLocalPath( path ) );
+      host.renamedFolders.remove( VssUtil.getCanonicalLocalPath( path ) );
 
     VfsUtil.markDirtyAndRefresh(true, true, false, map2Array(processedFiles, VirtualFile.class, FilePath::getVirtualFile));
     VcsDirtyScopeManager.getInstance(project).filesDirty(map(processedFiles, FilePath::getVirtualFile), null);
@@ -65,7 +67,7 @@ public class VssRollbackEnvironment implements RollbackEnvironment
   {
     for( Change change : changes )
     {
-      if( VcsUtil.isRenameChange( change ) && VcsUtil.isChangeForFolder( change ) )
+      if( VssUtil.isRenameChange( change ) && VssUtil.isChangeForFolder( change ) )
       {
         listener.accept(change);
         //  The only thing which we can perform on this step is physical
@@ -113,7 +115,7 @@ public class VssRollbackEnvironment implements RollbackEnvironment
     HashSet<FilePath> foldersNew = new HashSet<>();
     for( Change change : changes )
     {
-      if( VcsUtil.isChangeForNew( change ) )
+      if( VssUtil.isChangeForNew( change ) )
       {
         FilePath filePath = change.getAfterRevision().getFile();
 
@@ -149,7 +151,7 @@ public class VssRollbackEnvironment implements RollbackEnvironment
   {
     for( Change change : changes )
     {
-      if( VcsUtil.isChangeForDeleted( change ))
+      if( VssUtil.isChangeForDeleted( change ))
       {
         listener.accept(change);
         FilePath filePath = change.getBeforeRevision().getFile();
@@ -164,15 +166,15 @@ public class VssRollbackEnvironment implements RollbackEnvironment
     ArrayList<String> rollbacked = new ArrayList<>();
     for( Change change : changes )
     {
-      if( !VcsUtil.isChangeForNew( change ) &&
-          !VcsUtil.isChangeForDeleted( change ) &&
-          !VcsUtil.isChangeForFolder( change ) )
+      if( !VssUtil.isChangeForNew( change ) &&
+          !VssUtil.isChangeForDeleted( change ) &&
+          !VssUtil.isChangeForFolder( change ) )
       {
         FilePath filePath = change.getAfterRevision().getFile();
         String path = filePath.getPath();
         listener.accept(change);
 
-        if( VcsUtil.isRenameChange( change ) )
+        if( VssUtil.isRenameChange( change ) )
         {
           //  Track two different cases:
           //  - we delete the file which is already in the repository.
@@ -242,19 +244,20 @@ public class VssRollbackEnvironment implements RollbackEnvironment
       String path = file.getPath();
       host.removeFile( path, errors );
 
-      host.removedFiles.remove( VcsUtil.getCanonicalLocalPath( path ) );
-      host.removedFolders.remove( VcsUtil.getCanonicalLocalPath( path ) );
+      host.removedFiles.remove( VssUtil.getCanonicalLocalPath( path ) );
+      host.removedFolders.remove( VssUtil.getCanonicalLocalPath( path ) );
     }
     return errors;
   }
 
-  public void rollbackMissingFileDeletion(List<FilePath> paths, final List<VcsException> errors,
+  @Override
+  public void rollbackMissingFileDeletion(List<? extends FilePath> paths, final List<? super VcsException> errors,
                                                         final RollbackProgressListener listener)
   {
-    for( FilePath path : paths )
-    {
+    List<VcsException> errorList = castErrors(errors);
+    for (FilePath path : paths) {
       listener.accept(path);
-      rollbackMissingFileDeletion( path, errors );
+      rollbackMissingFileDeletion(path, errorList);
     }
   }
 
@@ -268,7 +271,7 @@ public class VssRollbackEnvironment implements RollbackEnvironment
     //  - there is no files in that folder.
     //  Thus we need to create this subfolder anyway, set it as the working folder
     //  and only after that issue "Get latest version".
-    String path = VcsUtil.getCanonicalLocalPath( file.getPath() );
+    String path = VssUtil.getCanonicalLocalPath( file.getPath() );
     if( host.isDeletedFolder( path ) ) 
     {
       //  In order for the "GetFileCommand" to retrieve the folder, it must
@@ -282,20 +285,26 @@ public class VssRollbackEnvironment implements RollbackEnvironment
     mgr.fileDirty( filePath );
   }
 
-  public void rollbackModifiedWithoutCheckout(final List<VirtualFile> files, final List<VcsException> errors,
-                                                            final RollbackProgressListener listener)
+  @Override
+  public void rollbackModifiedWithoutCheckout(final List<? extends VirtualFile> files, final List<? super VcsException> errors,
+                                              final RollbackProgressListener listener)
   {
+    List<VcsException> errorList = castErrors(errors);
     VcsDirtyScopeManager mgr = VcsDirtyScopeManager.getInstance(project);
-    for( VirtualFile file : files )
-    {
+    for (VirtualFile file : files) {
       listener.accept(file);
-      host.getLatestVersion( file.getPath(), false, errors );
+      host.getLatestVersion(file.getPath(), false, errorList);
       file.refresh( true, file.isDirectory() );
       mgr.fileDirty( file );
     }
   }
 
   public void rollbackIfUnchanged(VirtualFile file) {
+  }
+
+  @SuppressWarnings("unchecked")
+  private static List<VcsException> castErrors(List<? super VcsException> errors) {
+    return (List<VcsException>)errors;
   }
 
   private String discoverOldName( String file )

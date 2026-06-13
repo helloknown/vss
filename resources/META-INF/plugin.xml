@@ -1,7 +1,7 @@
 <idea-plugin>
     <name>Visual SourceSafe Integration</name>
     <id>SourceSafe</id>
-    <version>182.2258</version>
+    <version>1.0.0</version>
     <description>
         <![CDATA[
        <a href="http://msdn.microsoft.com/en-us/library/3h0544kx(v=vs.80).aspx">Visual SourceSafe</a> is a file-level version control system.
@@ -13,14 +13,14 @@
       <li>Implementing the most frequently needed commands (Open Source Safe Explorer, Check In/Out, Add, Undo Checkout, Get Latest Version)</li>
       <li> Next, Previous, Rollback, Old text actions are available from the dedicated gutter bar in changed locations.</li>
       </ul>
-      The plugin support is discontinued since October 17, 2017
       ]]>
     </description>
     <vendor>JetBrains</vendor>
     <category>VCS Integration</category>
-    <resource-bundle xmlns="">com.intellij.vssSupport.VssBundle</resource-bundle>
+    <resource-bundle>com.intellij.vssSupport.VssBundle</resource-bundle>
+
+    <depends>com.intellij.modules.platform</depends>
     <depends>com.intellij.modules.vcs</depends>
-    <idea-version since-build="182.2258"></idea-version>
 
     <extensions defaultExtensionNs="com.intellij">
 
@@ -30,6 +30,8 @@
         <vcsCheckinHandlerFactory implementation="com.intellij.vssSupport.VssVcsCheckinHandlerFactory"/>
 
         <projectService serviceImplementation="com.intellij.vssSupport.VssVcs"/>
+
+        <postStartupActivity implementation="com.intellij.vssSupport.Configuration.VssMappingStartupActivity"/>
     </extensions>
 
     <actions>

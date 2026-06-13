@@ -8,7 +8,6 @@ import com.intellij.openapi.components.State;
 import com.intellij.openapi.components.Storage;
 import com.intellij.openapi.components.StoragePathMacros;
 import com.intellij.openapi.options.Configurable;
-import com.intellij.openapi.options.UnnamedConfigurable;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.io.FileUtilRt;
@@ -25,15 +24,15 @@ import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileListener;
 import com.intellij.util.ArrayUtil;
-import com.intellij.util.containers.HashSet;
 import com.intellij.vcsUtil.VcsUtil;
 import com.intellij.vssSupport.Checkin.VssCheckinEnvironment;
 import com.intellij.vssSupport.Checkin.VssRollbackEnvironment;
-import com.intellij.vssSupport.Configuration.MapItem;
+import com.intellij.util.messages.MessageBusConnection;
 import com.intellij.vssSupport.Configuration.VssConfigurable;
-import com.intellij.vssSupport.Configuration.VssConfiguration;
+import com.intellij.vssSupport.Configuration.VssMappingStorage;
 import com.intellij.vssSupport.commands.*;
-import com.intellij.vssSupport.ui.VssRootConfigurable;
+import com.intellij.vssSupport.VssShowSettingOption;
+import com.intellij.vssSupport.VssUtil;
 import org.jdom.Element;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -43,6 +42,7 @@ import java.io.*;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 
 @State(name = "VssVcs", storages = @Storage(StoragePathMacros.WORKSPACE_FILE))
@@ -71,7 +71,7 @@ public class VssVcs extends AbstractVcs implements PersistentStateComponent<Elem
   private final EditFileProvider editFileProvider;
   private VirtualFileListener listener;
   private LocalFileOperationsHandler removalHandler;
-
+  private MessageBusConnection mappingListenerConnection;
   private VcsShowSettingOption myCheckoutOptions;
   private VcsShowSettingOption myUndoCheckoutOptions;
   private VcsShowSettingOption myGetOptions;
@@ -110,8 +110,8 @@ public class VssVcs extends AbstractVcs implements PersistentStateComponent<Elem
     ProjectLevelVcsManager vcsManager = ProjectLevelVcsManager.getInstance(getProject());
 
     myCheckoutOptions = vcsManager.getStandardOption(VcsConfiguration.StandardOption.CHECKOUT, this);
-    myUndoCheckoutOptions = vcsManager.getOrCreateCustomOption(VssBundle.message("action.name.undo.check.out"), this);
-    myGetOptions = vcsManager.getOrCreateCustomOption(VssBundle.message("action.name.get.latest.version"), this);
+    myUndoCheckoutOptions = new VssShowSettingOption();
+    myGetOptions = new VssShowSettingOption();
 
     addConfirmation = vcsManager.getStandardConfirmation(VcsConfiguration.StandardConfirmation.ADD, this);
     removeConfirmation = vcsManager.getStandardConfirmation(VcsConfiguration.StandardConfirmation.REMOVE, this);
@@ -142,11 +142,6 @@ public class VssVcs extends AbstractVcs implements PersistentStateComponent<Elem
     return NAME;
   }
 
-  @Override
-  public String getMenuItemText() {
-    return VssBundle.message("menu.item.source.safe.group.name");
-  }
-
   public static VssVcs getInstance(Project project) {
     return (VssVcs)ProjectLevelVcsManager.getInstance(project).findVcsByName(NAME);
   }
@@ -158,6 +153,11 @@ public class VssVcs extends AbstractVcs implements PersistentStateComponent<Elem
 
   @Override
   public CheckinEnvironment createCheckinEnvironment() {
+    return checkinEnvironment;
+  }
+
+  @Override
+  public VssCheckinEnvironment getCheckinEnvironment() {
     return checkinEnvironment;
   }
 
@@ -191,32 +191,18 @@ public class VssVcs extends AbstractVcs implements PersistentStateComponent<Elem
     //  Control the appearance of project items so that we can easily
     //  track down potential changes in the repository.
     listener = new VFSListener(getProject(), this);
+    ((VFSListener)listener).setActive(true);
     removalHandler = new VssLocalFileOperationsHandler(myProject, this);
     LocalFileSystem.getInstance().addVirtualFileListener(listener);
     CommandProcessor.getInstance().addCommandListener((CommandListener)listener);
     LocalFileSystem.getInstance().registerAuxiliaryFileOperationsHandler(removalHandler);
 
-    VssConfiguration config = VssConfiguration.getInstance(myProject);
-    ProjectLevelVcsManager mgr = ProjectLevelVcsManager.getInstance(myProject);
-    List<VcsDirectoryMapping> currentMappings = mgr.getDirectoryMappings();
-    List<VcsDirectoryMapping> newMappings = new ArrayList<>();
+    mappingListenerConnection = myProject.getMessageBus().connect(myProject);
+    mappingListenerConnection.subscribe(ProjectLevelVcsManager.VCS_CONFIGURATION_CHANGED,
+                                        () -> VssMappingStorage.enrichDirectoryMappings(myProject));
 
-    //  Load old-formatted content root mappings, transform them into new ones.
-    //  VssConfiguration reads them but never writes down again, so this procedure
-    //  will be performed once per old-formatted project.
-    if (config.getMapItemCount() > 0) {
-      for (int i = 0; i < config.getMapItemCount(); i++) {
-        MapItem item = config.getMapItem(i);
-        if (!hasMappedFolder(item.LOCAL_PATH, currentMappings)) {
-          VcsDirectoryMapping mapping = new VcsDirectoryMapping(item.LOCAL_PATH, getName());
-          mapping.setRootSettings(new VssRootSettings(item.VSS_PATH));
-          newMappings.add(mapping);
-        }
-      }
-    }
-    if (newMappings.size() > 0) {
-      mgr.setDirectoryMappings(newMappings);
-    }
+    ProjectLevelVcsManager mgr = ProjectLevelVcsManager.getInstance(myProject);
+    VssMappingStorage.restoreMappingsFromBackup(myProject);
 
     //  Add information about VSS project roots from the local project.
     List<VcsDirectoryMapping> list = mgr.getDirectoryMappings();
@@ -227,22 +213,15 @@ public class VssVcs extends AbstractVcs implements PersistentStateComponent<Elem
 
   @Override
   public void deactivate() {
+    if (mappingListenerConnection != null) {
+      mappingListenerConnection.disconnect();
+      mappingListenerConnection = null;
+    }
     LocalFileSystem.getInstance().removeVirtualFileListener(listener);
-    CommandProcessor.getInstance().removeCommandListener((CommandListener)listener);
+    ((VFSListener)listener).setActive(false);
     LocalFileSystem.getInstance().unregisterAuxiliaryFileOperationsHandler(removalHandler);
 
     ContentRevisionFactory.detachListeners();
-  }
-
-  private static boolean hasMappedFolder(String path, List<VcsDirectoryMapping> mappings) {
-    for (VcsDirectoryMapping mapping : mappings) {
-      //  remove possible backslash in settings.
-      final String normalPath = VssUtil.normalizeDirPath(mapping.getDirectory());
-      if (normalPath.equalsIgnoreCase(path)) {
-        return true;
-      }
-    }
-    return false;
   }
 
   public void checkinFile(VirtualFile file, List<VcsException> errors, boolean suppressWarns) {
@@ -252,7 +231,7 @@ public class VssVcs extends AbstractVcs implements PersistentStateComponent<Elem
   public void renameAndCheckInFile(String path, String newName, List<VcsException> errors) {
     File file = new File(path);
     File newFile = new File(file.getParentFile(), newName);
-    VirtualFile newVFile = VcsUtil.getVirtualFile(newFile);
+    VirtualFile newVFile = VssUtil.getVirtualFile(newFile);
 
     new RenameFileCommand(myProject, newVFile, file.getName(), errors).execute();
     new CheckinFileCommand(myProject, newVFile, errors).execute();
@@ -261,7 +240,7 @@ public class VssVcs extends AbstractVcs implements PersistentStateComponent<Elem
   public void renameDirectory(String path, String newName, List<VcsException> errors) {
     File file = new File(path);
     File newFile = new File(file.getParentFile(), newName);
-    VirtualFile newVFile = VcsUtil.getVirtualFile(newFile);
+    VirtualFile newVFile = VssUtil.getVirtualFile(newFile);
     RenameFileCommand cmd = new RenameFileCommand(myProject, newVFile, file.getName(), errors);
     cmd.execute();
   }
@@ -276,7 +255,7 @@ public class VssVcs extends AbstractVcs implements PersistentStateComponent<Elem
 
     try {
       FileUtil.copy(newFile, oldFile);
-      VirtualFile newVFile = VcsUtil.getVirtualFile(newFile);
+      VirtualFile newVFile = VssUtil.getVirtualFile(newFile);
       VirtualFile oldVFile = LocalFileSystem.getInstance().refreshAndFindFileByPath(oldFile.getPath());
 
       new CheckinFileCommand(myProject, oldVFile, errors).execute();
@@ -334,7 +313,7 @@ public class VssVcs extends AbstractVcs implements PersistentStateComponent<Elem
   }
 
   public void rollbackChanges(String path, List<VcsException> errors) {
-    VirtualFile file = VcsUtil.getVirtualFile(path);
+    VirtualFile file = VssUtil.getVirtualFile(path);
     if (file != null) {
       if (file.isDirectory()) {
         (new UndocheckoutDirCommand(myProject, file, errors)).execute();
@@ -346,7 +325,7 @@ public class VssVcs extends AbstractVcs implements PersistentStateComponent<Elem
   }
 
   public void rollbackChanges(String[] paths, List<VcsException> errors) {
-    VirtualFile[] files = VcsUtil.paths2VFiles(paths);
+    VirtualFile[] files = VssUtil.paths2VFiles(paths);
     if (files.length == 1 && files[0].isDirectory()) {
       (new UndocheckoutDirCommand(myProject, files[0], errors)).execute();
     }
@@ -366,7 +345,14 @@ public class VssVcs extends AbstractVcs implements PersistentStateComponent<Elem
 
   @Override
   public boolean fileExistsInVcs(FilePath path) {
-    return fileIsUnderVcs(path) && super.fileExistsInVcs(path);
+    if (!fileIsUnderVcs(path)) {
+      return false;
+    }
+    // AbstractVcs treats paths without a VirtualFile as already versioned; that blocks external drag-and-drop.
+    if (path.getVirtualFile() == null) {
+      return false;
+    }
+    return super.fileExistsInVcs(path);
   }
 
   @Override
@@ -377,6 +363,7 @@ public class VssVcs extends AbstractVcs implements PersistentStateComponent<Elem
 
   public void add2NewFile(@NotNull VirtualFile file) {
     newFiles.add(file);
+    VssUtil.ensureLocallyWritable(getProject(), file);
   }
 
   public void deleteNewFile(@NotNull VirtualFile file) {
@@ -384,7 +371,7 @@ public class VssVcs extends AbstractVcs implements PersistentStateComponent<Elem
   }
 
   public boolean containsNew(String path) {
-    VirtualFile file = VcsUtil.getVirtualFile(path);
+    VirtualFile file = VssUtil.getVirtualFile(path);
     return newFiles.contains(file);
   }
 
@@ -403,11 +390,6 @@ public class VssVcs extends AbstractVcs implements PersistentStateComponent<Elem
 
     return ((versionFile2003 != null && !versionFile2003.isDirectory()) ||
             (versionFile2005 != null && !versionFile2005.isDirectory()));
-  }
-
-  @Override
-  public UnnamedConfigurable getRootConfigurable(final VcsDirectoryMapping mapping) {
-    return new VssRootConfigurable(mapping, myProject);
   }
 
   @Override
@@ -445,7 +427,7 @@ public class VssVcs extends AbstractVcs implements PersistentStateComponent<Elem
     readUsedProjectPaths();
 
     for (String path : tmp) {
-      VirtualFile file = VcsUtil.getVirtualFile(path);
+      VirtualFile file = VssUtil.getVirtualFile(path);
       if (file != null) {
         newFiles.add(file);
       }

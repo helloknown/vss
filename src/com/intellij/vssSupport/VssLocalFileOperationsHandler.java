@@ -79,6 +79,7 @@ public class VssLocalFileOperationsHandler implements LocalFileOperationsHandler
     return (change.getFileStatus() == FileStatus.ADDED) || (change.getFileStatus() == FileStatus.UNKNOWN);
   }
 
-  public void afterDone(final ThrowableConsumer<LocalFileOperationsHandler, IOException> invoker) {
+  @Override
+  public void afterDone(final ThrowableConsumer<? super LocalFileOperationsHandler, ? extends IOException> invoker) {
   }
 }

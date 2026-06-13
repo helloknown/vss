@@ -9,8 +9,8 @@ import com.intellij.openapi.vcs.FileStatus;
 import com.intellij.openapi.vcs.ProjectLevelVcsManager;
 import com.intellij.openapi.vcs.changes.ChangeListManager;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.vcsUtil.VcsUtil;
 import com.intellij.vssSupport.Checkin.VssCheckinEnvironment;
+import com.intellij.vssSupport.VssUtil;
 import com.intellij.vssSupport.VssVcs;
 
 /**
@@ -21,12 +21,12 @@ public class AddAction extends VssAction
   public void actionPerformed(AnActionEvent e)
   {
     Project project = e.getData( CommonDataKeys.PROJECT );
-    VirtualFile[] files = VcsUtil.getVirtualFiles( e );
+    VirtualFile[] files = VssUtil.getVirtualFiles(e);
     VssVcs host = VssVcs.getInstance( project );
 
     VssCheckinEnvironment env = (VssCheckinEnvironment)host.getCheckinEnvironment();
     if( env != null )
-      env.scheduleUnversionedFilesForAddition( files );
+      env.scheduleUnversionedFilesForAddition(java.util.Arrays.asList(files));
   }
 
   /**
@@ -42,7 +42,7 @@ public class AddAction extends VssAction
     {
       Project project = e.getData( CommonDataKeys.PROJECT );
       VssVcs  host = VssVcs.getInstance( project );
-      VirtualFile[] files = VcsUtil.getVirtualFiles( e );
+      VirtualFile[] files = VssUtil.getVirtualFiles(e);
       
       ProjectLevelVcsManager pm = ProjectLevelVcsManager.getInstance( project );
       ChangeListManager mgr = ChangeListManager.getInstance( project );

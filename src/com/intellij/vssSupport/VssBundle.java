@@ -8,8 +8,6 @@ import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.PropertyKey;
 
-import java.lang.ref.Reference;
-import java.lang.ref.SoftReference;
 import java.util.ResourceBundle;
 
 public class VssBundle {
@@ -18,18 +16,16 @@ public class VssBundle {
     return CommonBundle.message(getBundle(), key, params);
   }
 
-  private static Reference<ResourceBundle> ourBundle;
   @NonNls private static final String BUNDLE = "com.intellij.vssSupport.VssBundle";
+  private static ResourceBundle ourBundle;
 
   private VssBundle() {
   }
 
   private static ResourceBundle getBundle() {
-    ResourceBundle bundle = com.intellij.reference.SoftReference.dereference(ourBundle);
-    if (bundle == null) {
-      bundle = ResourceBundle.getBundle(BUNDLE);
-      ourBundle = new SoftReference<>(bundle);
+    if (ourBundle == null) {
+      ourBundle = ResourceBundle.getBundle(BUNDLE);
     }
-    return bundle;
+    return ourBundle;
   }
 }

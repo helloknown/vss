@@ -29,7 +29,6 @@ public class ConfirmMultipleDialog extends DialogWrapper
     super(project, false);
     setTitle(title);
     myText=text;
-    setButtonsAlignment(SwingUtilities.CENTER);
     init();
   }
 
@@ -39,7 +38,7 @@ public class ConfirmMultipleDialog extends DialogWrapper
       new MyAction(CommonBundle.getYesButtonText(),YES_EXIT_CODE),
       new MyAction(CommonBundle.getYesForAllButtonText(),YES_ALL_EXIT_CODE),
       new MyAction(CommonBundle.getNoButtonText(),NO_EXIT_CODE),
-      new MyAction(CommonBundle.getNoForAllButtonText(),NO_ALL_EXIT_CODE),
+      new MyAction("No for All", NO_ALL_EXIT_CODE),
       new MyAction(CommonBundle.getCancelButtonText(),CANCEL_OPTION),
     };
   }

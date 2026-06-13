@@ -22,7 +22,6 @@ import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.fileTypes.FileTypeManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vcs.*;
-import com.intellij.openapi.vcs.actions.VcsContextFactory;
 import com.intellij.openapi.vcs.changes.ChangeListManager;
 import com.intellij.openapi.vcs.changes.VcsDirtyScopeManager;
 import com.intellij.openapi.vfs.*;
@@ -37,11 +36,19 @@ public class VFSListener implements CommandListener, VirtualFileListener {
   private final Project project;
   private final VssVcs  host;
 
-  private int     commandLevel;
+  private int commandLevel;
+  private boolean active = true;
   private final List<VirtualFile> filesAdded = new ArrayList<>();
   private final List<FilePath> filesDeleted = new ArrayList<>();
 
-  public VFSListener( Project project, VssVcs host ) {  this.project = project; this.host = host; }
+  public VFSListener(Project project, VssVcs host) {
+    this.project = project;
+    this.host = host;
+  }
+
+  public void setActive(boolean active) {
+    this.active = active;
+  }
 
   @Override
   public void fileCreated(@NotNull VirtualFileEvent event )
@@ -74,7 +81,10 @@ public class VFSListener implements CommandListener, VirtualFileListener {
       {
         FileStatus status = ChangeListManager.getInstance( project ).getStatus( parent );
         if( status != FileStatus.UNKNOWN )
+        {
           filesAdded.add( file );
+          VssUtil.ensureLocallyWritable( project, file );
+        }
       }
     }
   }
@@ -110,7 +120,7 @@ public class VFSListener implements CommandListener, VirtualFileListener {
       else
       if( isFileProcessable( file ) )
       {
-        FilePath path = VcsContextFactory.SERVICE.getInstance().createFilePathOn( file );
+        FilePath path = VcsUtil.getFilePath(file);
         filesDeleted.add( path );
       }
     }
@@ -227,16 +237,18 @@ public class VFSListener implements CommandListener, VirtualFileListener {
   }
 
   @Override
-  public void commandStarted(final CommandEvent event)
-  {
-    if( project == event.getProject() )
-      commandLevel++;
+  public void commandStarted(final CommandEvent event) {
+    if (!active || project != event.getProject()) {
+      return;
+    }
+    commandLevel++;
   }
 
   @Override
-  public void commandFinished(final CommandEvent event)
-  {
-    if (project != event.getProject()) return;
+  public void commandFinished(final CommandEvent event) {
+    if (!active || project != event.getProject()) {
+      return;
+    }
 
     commandLevel--;
     if (commandLevel == 0)
@@ -299,6 +311,7 @@ public class VFSListener implements CommandListener, VirtualFileListener {
       host.deletedFolders.remove( path );
 
       host.add2NewFile( file );
+      VssUtil.ensureLocallyWritable( project, file );
       VcsDirtyScopeManager.getInstance(project).fileDirty(file);
     }
   }
@@ -339,7 +352,7 @@ public class VFSListener implements CommandListener, VirtualFileListener {
     for( FilePath fpath : allpaths )
     {
       String path = fpath.getPath();
-      path = VcsUtil.getCanonicalLocalPath( path );
+      path = VssUtil.getCanonicalLocalPath(path);
       if( fpath.isDirectory() )
       {
         markSubfolderStructure( path );

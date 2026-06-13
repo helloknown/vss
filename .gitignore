@@ -1,1 +1,21 @@
 out/
+build/
+.gradle/
+.intellijPlatform/
+
+# IDE: keep plugin module + minimal project settings; ignore caches/workspace
+.idea/*
+!.idea/gradle.xml
+!.idea/misc.xml
+!.idea/modules.xml
+!.idea/compiler.xml
+!.idea/vcs.xml
+.idea/workspace.xml
+.idea/usage.statistics.xml
+.idea/shelf/
+
+*.iml
+!vss-integration.iml
+
+src/.idea/
+src/out/

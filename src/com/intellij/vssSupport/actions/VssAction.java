@@ -10,6 +10,7 @@ import com.intellij.openapi.vcs.ProjectLevelVcsManager;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.vcsUtil.VcsUtil;
 import com.intellij.vssSupport.Configuration.VssConfiguration;
+import com.intellij.vssSupport.VssUtil;
 import com.intellij.vssSupport.VssVcs;
 
 import java.awt.*;
@@ -51,7 +52,7 @@ abstract class VssAction extends AnAction
       {
         VssVcs  host = VssVcs.getInstance( project );
         pm = ProjectLevelVcsManager.getInstance( project );
-        state = pm.checkAllFilesAreUnder( host, VcsUtil.getVirtualFiles( e ) );
+        state = pm.checkAllFilesAreUnder(host, VssUtil.getVirtualFiles(e));
       }
       presentation.setEnabled( state );
     }

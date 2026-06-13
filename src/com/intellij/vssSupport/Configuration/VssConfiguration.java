@@ -21,13 +21,14 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
 
+@Service(Service.Level.PROJECT)
 @State(
   name = "VssConfiguration",
   storages = {
     @Storage(StoragePathMacros.WORKSPACE_FILE)
   }
 )
-public class VssConfiguration implements PersistentStateComponent<Element>
+public final class VssConfiguration implements PersistentStateComponent<Element>
 {
   private static final Logger LOG = Logger.getInstance("#com.intellij.vssSupport.Configuration.VssConfiguration");
 
@@ -132,8 +133,8 @@ public class VssConfiguration implements PersistentStateComponent<Element>
     return _Y_OPTION + USER_NAME + (getPassword().length() > 0 ? "," + getPassword() : "");
   }
 
-  public static VssConfiguration getInstance(Project project){
-    return ServiceManager.getService(project, VssConfiguration.class);
+  public static VssConfiguration getInstance(Project project) {
+    return project.getService(VssConfiguration.class);
   }
 
   /**
@@ -145,6 +146,31 @@ public class VssConfiguration implements PersistentStateComponent<Element>
    * @return the number of all available items.
    */
   public int getMapItemCount(){  return myMapItems.size();  }
+
+  public void clearLegacyMapItems() {
+    myMapItems.clear();
+  }
+
+  public void clearMapItems() {
+    myMapItems.clear();
+  }
+
+  public void addMapItem(MapItem item) {
+    myMapItems.add(item);
+  }
+
+  public void removeMapItem(int index) {
+    myMapItems.remove(index);
+  }
+
+  @Nullable
+  public String getDirectoryMappingVssProject(String localDirectory) {
+    return VssMappingStorage.getVssProject(myProject, localDirectory);
+  }
+
+  public void setDirectoryMappingVssProject(String localDirectory, String vssProject) {
+    VssMappingStorage.put(myProject, localDirectory, vssProject);
+  }
 
   public String getPassword() {
     try {  return PasswordUtil.decodePassword(PWD);  }
@@ -210,6 +236,14 @@ public class VssConfiguration implements PersistentStateComponent<Element>
       elem = new Element( GetOptions.TAG );
       parentNode.addContent( elem );
       DefaultJDOMExternalizer.writeExternal( myGetOptions, elem );
+
+      for (Object item : myMapItems) {
+        if (item instanceof MapItem mapItem) {
+          Element mapElement = new Element(MAP_ITEM_ELEMENT_NAME);
+          mapItem.writeExternal(mapElement);
+          parentNode.addContent(mapElement);
+        }
+      }
     }
     catch (WriteExternalException e) {
       LOG.warn(e);

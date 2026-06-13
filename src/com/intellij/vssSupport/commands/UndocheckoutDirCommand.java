@@ -153,7 +153,7 @@ public class UndocheckoutDirCommand extends VssCommandAbstract
       }
       else
       {
-        VcsUtil.showStatusMessage( myProject,
+        VssUtil.showStatusMessage(myProject,
                                    VssBundle.message("message.text.undo.successfully", myDir.getName() ) );
       }
     }

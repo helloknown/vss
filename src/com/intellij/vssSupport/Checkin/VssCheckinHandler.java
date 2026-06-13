@@ -4,8 +4,8 @@ import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.vcs.CheckinProjectPanel;
 import com.intellij.openapi.vcs.checkin.CheckinHandler;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.vcsUtil.VcsUtil;
 import com.intellij.vssSupport.VssBundle;
+import com.intellij.vssSupport.VssUtil;
 import com.intellij.vssSupport.VssVcs;
 
 import java.util.Collection;
@@ -35,7 +35,7 @@ public class VssCheckinHandler extends CheckinHandler {
       {
         if( file.getPath().startsWith( newFolderName ) )
         {
-          VirtualFile parent = VcsUtil.getVirtualFile( newFolderName );
+          VirtualFile parent = VssUtil.getVirtualFile(newFolderName);
           set.add( parent );
         }
       }

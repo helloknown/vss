@@ -183,7 +183,7 @@ public class CheckoutAction extends VssAction
   {
     for( String file : files )
     {
-      VirtualFile vFile = VcsUtil.getVirtualFile( file );
+      VirtualFile vFile = VssUtil.getVirtualFile(file);
       if( vFile != null )
         vFile.putUserData( VssCheckoutAbstractCommand.SUCCESSFUL_CHECKOUT, true );
     }

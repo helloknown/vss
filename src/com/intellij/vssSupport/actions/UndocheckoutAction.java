@@ -39,7 +39,7 @@ public class UndocheckoutAction extends VssAction
       //  UndoCheckout works only for a set of folders or for a set of ordinary files
       Project project = e.getData( CommonDataKeys.PROJECT );
       ChangeListManager mgr = ChangeListManager.getInstance( project );
-      VirtualFile[] files = VcsUtil.getVirtualFiles( e );
+      VirtualFile[] files = VssUtil.getVirtualFiles(e);
 
       boolean isEnabled = allFilesAreFolders( files );
       if( !isEnabled )

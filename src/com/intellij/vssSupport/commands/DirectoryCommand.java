@@ -47,7 +47,7 @@ public class DirectoryCommand extends VssCommandAbstract
     //  Given folder must be under the one of the repository roots - add it
     //  to the processing list as the working folder.
 
-    VirtualFile aux = VcsUtil.getVirtualFile( path );
+    VirtualFile aux = VssUtil.getVirtualFile(path);
     VirtualFile contentRoot = mgr.getVcsRootFor( aux );
     if( contentRoot == null )
       throw new IllegalArgumentException( "DIRECTORY command can be started only for a valid content root" );

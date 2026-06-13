@@ -22,9 +22,10 @@ public class VssRootSettings implements VcsRootSettings
 
   public void readExternal(Element element) throws InvalidDataException
   {
-    vssProject = element.getAttributeValue( PROJECT_TAG );
-    if( vssProject.length() == 0 )
+    vssProject = element.getAttributeValue(PROJECT_TAG);
+    if (vssProject == null || vssProject.isEmpty()) {
       vssProject = null;
+    }
   }
 
   public void writeExternal(Element element) throws WriteExternalException
@@ -40,5 +41,7 @@ public class VssRootSettings implements VcsRootSettings
            (vssProject != null && vssProject.equals( that.vssProject ) );
   }
 
-  public int hashCode() {  return vssProject.hashCode();  }
+  public int hashCode() {
+    return vssProject != null ? vssProject.hashCode() : 0;
+  }
 }

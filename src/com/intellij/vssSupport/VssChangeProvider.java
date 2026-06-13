@@ -12,6 +12,7 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.vcsUtil.VcsImplUtil;
 import com.intellij.vcsUtil.VcsUtil;
 import com.intellij.vssSupport.Configuration.VssConfiguration;
+import com.intellij.vssSupport.Configuration.VssMappingStorage;
 import com.intellij.vssSupport.commands.DirectoryCommand;
 import com.intellij.vssSupport.commands.PropertiesCommand;
 import com.intellij.vssSupport.commands.StatusMultipleCommand;
@@ -35,7 +36,7 @@ public class VssChangeProvider implements ChangeProvider
   private final Project project;
   private final VssVcs  host;
   private boolean isBatchUpdate;
-  private boolean showInvalidConfigMessage = true;
+  private boolean loggedInvalidMappings = false;
   private ProgressIndicator progress;
 
   private final HashSet<String> filesNew = new HashSet<>();
@@ -452,7 +453,7 @@ public class VssChangeProvider implements ChangeProvider
       }
       else
       {
-        builder.processUnversionedFile( VcsUtil.getVirtualFile( fileName ) );
+        builder.processUnversionedFile(VssUtil.getVirtualFile(fileName));
       }
     }
   }
@@ -545,7 +546,7 @@ public class VssChangeProvider implements ChangeProvider
   private void addIgnoredFiles( final ChangelistBuilder builder )
   {
     for( String path : filesIgnored )
-      builder.processIgnoredFile( VcsUtil.getVirtualFile( path ) );
+      builder.processIgnoredFile(VcsUtil.getFilePath(path, false));
   }
 
   private boolean isFolderExists( String fileName )
@@ -734,34 +735,14 @@ public class VssChangeProvider implements ChangeProvider
    */
   private boolean checkDirectoryMappings()
   {
-    boolean checkPassed = true;
-    ProjectLevelVcsManager mgr = ProjectLevelVcsManager.getInstance( project );
-    List<VcsDirectoryMapping> mappings = mgr.getDirectoryMappings( host );
-
-    if( mappings.size() == 0 )
-    {
-      checkPassed = false;
+    boolean checkPassed = VssMappingStorage.hasValidMappings(project);
+    if (!checkPassed && !loggedInvalidMappings) {
+      LOG.info("Skipping VSS change scan: directory mappings are missing or have no VSS project path configured");
+      loggedInvalidMappings = true;
     }
-    else
-    {
-      for( VcsDirectoryMapping mapping : mappings )
-      {
-        VssRootSettings settings = (VssRootSettings)mapping.getRootSettings();
-        if( settings == null || StringUtil.isEmptyOrSpaces( settings.getVssProject() ) )
-        {
-          checkPassed = false;
-          break;
-        }
-      }
+    if (checkPassed) {
+      loggedInvalidMappings = false;
     }
-
-    if( !checkPassed && showInvalidConfigMessage )
-    {
-      VcsImplUtil.showErrorMessage(project, VssBundle.message("message.text.specify.content.roots"),
-                                   VssBundle.message("message.text.operation.failed"));
-      showInvalidConfigMessage = false;
-    }
-    
     return checkPassed;
   }
 

@@ -29,6 +29,12 @@ public class VssEditFileProvider implements EditFileProvider
     ArrayList<VcsException> errors = new ArrayList<>();
     for( final VirtualFile file : files )
     {
+      if( VssUtil.isPendingVssAddition( project, file ) )
+      {
+        VssUtil.ensureLocallyWritableOrShowError( project, file );
+        continue;
+      }
+
       //  Calc options for each iteration since user can set "do not show"
       //  in the middle.
       boolean showOptions = VssVcs.getInstance( project ).getCheckoutOptions().getValue();

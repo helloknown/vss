@@ -45,8 +45,8 @@ public class MapItem implements JDOMExternalizable{
 
   public void readExternal(Element element) throws InvalidDataException {
     DefaultJDOMExternalizer.readExternal(this, element);
-    VSS_PATH= VssUtil.getCanonicalVssPath(VSS_PATH);
-    LOCAL_PATH=VssUtil.getCanonicalVssPath(LOCAL_PATH);
+    VSS_PATH = VssUtil.getCanonicalVssPath(VSS_PATH);
+    LOCAL_PATH = VssUtil.getCanonicalLocalPath(LOCAL_PATH.replace('\\', '/'));
   }
 
   public void writeExternal(Element element) throws WriteExternalException {

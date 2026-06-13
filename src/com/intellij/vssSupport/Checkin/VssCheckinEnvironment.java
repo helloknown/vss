@@ -14,10 +14,12 @@ import com.intellij.openapi.vcs.checkin.CheckinEnvironment;
 import com.intellij.openapi.vcs.ui.RefreshableOnComponent;
 import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.util.NullableFunction;
+import com.intellij.openapi.vcs.changes.CommitContext;
 import com.intellij.util.PairConsumer;
 import com.intellij.vcsUtil.VcsUtil;
 import com.intellij.vssSupport.AddOptions;
+import com.intellij.vssSupport.VssCommitMessageUtil;
+import com.intellij.vssSupport.VssUtil;
 import com.intellij.vssSupport.CheckinOptions;
 import com.intellij.vssSupport.Configuration.VssConfiguration;
 import com.intellij.vssSupport.VssBundle;
@@ -118,26 +120,30 @@ public class VssCheckinEnvironment implements CheckinEnvironment
                                                         config.getCheckoutOptions().COMMENT;
   }
 
-  public List<VcsException> commit(List<Change> changes,
+  @Override
+  public List<VcsException> commit(List<? extends Change> changes,
                                    String comment,
-                                   @NotNull NullableFunction<Object, Object> parametersHolder,
-                                   Set<String> feedback)
+                                   CommitContext commitContext,
+                                   Set<? super String> feedback)
   {
+    List<Change> changeList = new ArrayList<>(changes);
     List<VcsException> errors = new ArrayList<>();
     HashSet<FilePath> processedFiles = new HashSet<>();
 
-    if( comment != null )
+    if (comment != null) {
+      comment = VssCommitMessageUtil.normalize(comment);
       VssConfiguration.getInstance(project).getCheckinOptions().COMMENT = comment;
+    }
 
     //  Keep track of the fact that we deal with renamed fodlers. This will
     //  help us to suppress undesirable warning messages of type
     //  "X was checkout from Y folder, continue?" which are invevitable when
     //  we will checkin changed files under the renamed fodlers.
-    boolean isAnyAddedFolder = adjustChangesWithRenamedParentFolders( changes );
+    boolean isAnyAddedFolder = adjustChangesWithRenamedParentFolders(changeList);
 
     try
     {
-      initProgress( changes.size() );
+      initProgress(changeList.size());
 
       //  Committing of renamed folders must be performed first since they
       //  affect all other checkings under them (except those having status
@@ -151,15 +157,15 @@ public class VssCheckinEnvironment implements CheckinEnvironment
       //    just get the warning that we checking in file which was checked out
       //    from another location. Supress it.
 
-      commitRenamedFolders( changes, errors );
+      commitRenamedFolders(changeList, errors);
 
-      commitDeleted( changes, errors );
+      commitDeleted(changeList, errors);
 
       //  IMPORTANT!
       //  Committment of the changed files must be performed first because of
       //  specially processed exceptions described in the ChangeProvider.
-      commitChanged( changes, processedFiles, errors, isAnyAddedFolder );
-      commitNew( changes, processedFiles, errors );
+      commitChanged(changeList, processedFiles, errors, isAnyAddedFolder);
+      commitNew(changeList, processedFiles, errors);
     }
     catch( ProcessCanceledException e )
     {
@@ -172,8 +178,9 @@ public class VssCheckinEnvironment implements CheckinEnvironment
     return errors;
   }
 
-  public List<VcsException> commit(List<Change> changes, String preparedComment) {
-    return commit(changes, preparedComment, NullableFunction.NULL, null);
+  @Override
+  public List<VcsException> commit(List<? extends Change> changes, String preparedComment) {
+    return commit(changes, preparedComment, new CommitContext(), null);
   }
 
   private boolean adjustChangesWithRenamedParentFolders( List<Change> changes )
@@ -192,7 +199,7 @@ public class VssCheckinEnvironment implements CheckinEnvironment
   {
     for( Change change : changes )
     {
-      if( VcsUtil.isRenameChange( change ) && VcsUtil.isChangeForFolder( change ) )
+      if( VssUtil.isRenameChange( change ) && VssUtil.isChangeForFolder( change ) )
       {
         FilePath newFile = change.getAfterRevision().getFile();
         FilePath oldFile = change.getBeforeRevision().getFile();
@@ -219,7 +226,7 @@ public class VssCheckinEnvironment implements CheckinEnvironment
     //  Sort folders in ascending order - from the most outer folder
     //  to the inner one.
     FilePath[] foldersSorted = folders.toArray( new FilePath[ folders.size() ] );
-    foldersSorted = VcsUtil.sortPathsFromOutermost( foldersSorted );
+    foldersSorted = VssUtil.sortPathsFromOutermost(foldersSorted);
 
     for( FilePath folder : foldersSorted )
       host.addFolder( folder.getVirtualFile(), errors );
@@ -236,7 +243,7 @@ public class VssCheckinEnvironment implements CheckinEnvironment
   {
     for( Change change : changes )
     {
-      if( VcsUtil.isChangeForNew( change ) )
+      if( VssUtil.isChangeForNew( change ) )
       {
         FilePath filePath = change.getAfterRevision().getFile();
         if( filePath.isDirectory() )
@@ -277,10 +284,10 @@ public class VssCheckinEnvironment implements CheckinEnvironment
   {
     for( Change change : changes )
     {
-      if( VcsUtil.isChangeForDeleted( change ) )
+      if( VssUtil.isChangeForDeleted( change ) )
       {
         final FilePath fp = change.getBeforeRevision().getFile();
-        String path = VcsUtil.getCanonicalLocalPath( fp.getPath() );
+        String path = VssUtil.getCanonicalLocalPath( fp.getPath() );
         host.removeFile( path, errors );
 
         host.deletedFiles.remove( path );
@@ -295,18 +302,18 @@ public class VssCheckinEnvironment implements CheckinEnvironment
   {
     for( Change change : changes )
     {
-      if( !VcsUtil.isChangeForNew( change ) &&
-          !VcsUtil.isChangeForDeleted( change ) &&
-          !VcsUtil.isChangeForFolder( change ) )
+      if( !VssUtil.isChangeForNew( change ) &&
+          !VssUtil.isChangeForDeleted( change ) &&
+          !VssUtil.isChangeForFolder( change ) )
       {
         FilePath file = change.getAfterRevision().getFile();
         ContentRevision before = change.getBeforeRevision();
-        String newPath = VcsUtil.getCanonicalLocalPath( file.getPath() );
+        String newPath = VssUtil.getCanonicalLocalPath( file.getPath() );
         String oldPath = host.renamedFiles.get( newPath );
         if( oldPath != null )
         {
           FilePath oldFile = before.getFile();
-          String prevPath = VcsUtil.getCanonicalLocalPath( oldFile.getPath() );
+          String prevPath = VssUtil.getCanonicalLocalPath( oldFile.getPath() );
 
           //  If parent folders' names of the revisions coinside, then we
           //  deal with the simle rename, otherwise we process full-scaled
@@ -318,7 +325,7 @@ public class VssCheckinEnvironment implements CheckinEnvironment
           }
           else
           {
-            String newFolder = VcsUtil.getCanonicalLocalPath( file.getVirtualFileParent().getPath() );
+            String newFolder = VssUtil.getCanonicalLocalPath( file.getVirtualFileParent().getPath() );
             host.moveRenameAndCheckInFile( prevPath, newFolder, file.getName(), errors );
           }
           host.renamedFiles.remove( newPath );
@@ -334,7 +341,8 @@ public class VssCheckinEnvironment implements CheckinEnvironment
     }
   }
 
-  public List<VcsException> scheduleMissingFileForDeletion( List<FilePath> paths )
+  @Override
+  public List<VcsException> scheduleMissingFileForDeletion(List<? extends FilePath> paths)
   {
     List<VcsException> errors = new ArrayList<>();
     for( FilePath file : paths )
@@ -342,15 +350,20 @@ public class VssCheckinEnvironment implements CheckinEnvironment
       String path = file.getPath();
       host.removeFile( path, errors );
 
-      host.removedFiles.remove( VcsUtil.getCanonicalLocalPath( path ) );
-      host.removedFolders.remove( VcsUtil.getCanonicalLocalPath( path ) );
+      host.removedFiles.remove( VssUtil.getCanonicalLocalPath( path ) );
+      host.removedFolders.remove( VssUtil.getCanonicalLocalPath( path ) );
     }
     return errors;
   }
 
-  public List<VcsException> scheduleUnversionedFilesForAddition( List<VirtualFile> files )
-  {
-    return scheduleUnversionedFilesForAddition(VfsUtil.toVirtualFileArray(files));
+  @Override
+  public List<VcsException> scheduleUnversionedFilesForAddition(List<? extends VirtualFile> files) {
+    for (VirtualFile file : files) {
+      host.add2NewFile(file);
+      VcsDirtyScopeManager.getInstance(project).fileDirty(file);
+      extendStatus(file);
+    }
+    return new ArrayList<>();
   }
 
   public boolean keepChangeListAfterCommit(ChangeList changeList) {
@@ -360,21 +373,6 @@ public class VssCheckinEnvironment implements CheckinEnvironment
   @Override
   public boolean isRefreshAfterCommitNeeded() {
     return true;
-  }
-
-  public List<VcsException> scheduleUnversionedFilesForAddition( VirtualFile[] files )
-  {
-    for( VirtualFile file : files )
-    {
-      host.add2NewFile( file );
-      VcsDirtyScopeManager.getInstance(project).fileDirty(file);
-
-      //  Extend status change to all parent folders if they are not
-      //  included into the context of the menu action.
-      extendStatus( file );
-    }
-    // Keep intentionally empty.
-    return new ArrayList<>();
   }
 
   private void extendStatus( VirtualFile file )
@@ -396,14 +394,14 @@ public class VssCheckinEnvironment implements CheckinEnvironment
     boolean isAnyRenamedFolderForFiles;
     for( Change change : changes )
     {
-      if( !VcsUtil.isChangeForDeleted( change ))
+      if( !VssUtil.isChangeForDeleted( change ))
       {
         ContentRevision rev = change.getAfterRevision();
         for( String newFolderName : host.renamedFolders.keySet() )
         {
           if( rev.getFile().getPath().startsWith( newFolderName ) )
           {
-            VirtualFile parent = VcsUtil.getVirtualFile( newFolderName );
+            VirtualFile parent = VssUtil.getVirtualFile(newFolderName);
             set.add( parent );
           }
         }
@@ -413,7 +411,7 @@ public class VssCheckinEnvironment implements CheckinEnvironment
 
     for( Change change : changes )
     {
-      if( !VcsUtil.isChangeForDeleted( change ))
+      if( !VssUtil.isChangeForDeleted( change ))
       {
         ContentRevision rev = change.getAfterRevision();
         VirtualFile submittedParent = rev.getFile().getVirtualFile();

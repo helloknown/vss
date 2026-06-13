@@ -1,6 +1,7 @@
 package com.intellij.vssSupport.commands;
 
 import com.intellij.diff.DiffContentFactory;
+import com.intellij.diff.DiffDialogHints;
 import com.intellij.diff.DiffManager;
 import com.intellij.diff.contents.DiffContent;
 import com.intellij.diff.requests.DiffRequest;
@@ -114,7 +115,7 @@ public class DiffFileCommand extends VssCommandAbstract
           DiffContent currentContent = DiffContentFactory.getInstance().create(myProject, myFile);
 
           DiffRequest request = new SimpleDiffRequest(title, vssContent, currentContent, title1, title2);
-          DiffManager.getInstance().showDiff(myProject, request);
+          DiffManager.getInstance().showDiff(myProject, request, DiffDialogHints.FRAME);
         }
         catch (IOException e) {
           myErrors.add( new VcsException(e.getLocalizedMessage()) );

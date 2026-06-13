@@ -33,7 +33,7 @@ public class GetAction extends VssAction
     {
       Project project = e.getData( CommonDataKeys.PROJECT );
       ChangeListManager mgr = ChangeListManager.getInstance( project );
-      VirtualFile[] files = VcsUtil.getVirtualFiles( e );
+      VirtualFile[] files = VssUtil.getVirtualFiles(e);
 
       if( !allFilesAreFolders( files ) )
       {

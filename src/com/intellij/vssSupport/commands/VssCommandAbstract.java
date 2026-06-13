@@ -159,7 +159,7 @@ public abstract class VssCommandAbstract
 
   protected void runCP( String folder, String workingFolder )
   {
-    folder = VcsUtil.getCanonicalLocalPath( folder );
+    folder = VssUtil.getCanonicalLocalPath(folder);
     folder = VssUtil.getVssPath( folder, true, myProject );
     List<String> cpParams = formOptions( "cp", folder );
     

@@ -5,7 +5,6 @@ import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.PlatformDataKeys;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.vcsUtil.VcsUtil;
 import com.intellij.vssSupport.VssUtil;
 import com.intellij.vssSupport.commands.RunExplorerCommand;
 
@@ -17,7 +16,7 @@ public class RunExplorerAction extends VssAction
   public void actionPerformed(AnActionEvent e)
   {
     final Project project = e.getData( CommonDataKeys.PROJECT );
-    VirtualFile virtualFile = VcsUtil.getOneVirtualFile( e );
+    VirtualFile virtualFile = VssUtil.getOneVirtualFile(e);
     (new RunExplorerCommand(project, virtualFile)).execute();
   }
 

@@ -7,8 +7,6 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.process.InterruptibleProcess;
-import com.intellij.openapi.vcs.impl.ProcessWaiter;
 import com.intellij.util.ArrayUtil;
 import com.intellij.vssSupport.VssBundle;
 import com.intellij.vssSupport.VssOutputCollector;
@@ -16,23 +14,19 @@ import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.Writer;
 import java.util.HashMap;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 
 /**
  * @author LloiX
  */
-public class VSSExecUtil
-{
+public class VSSExecUtil {
   public static final Logger LOG = Logger.getInstance("#com.intellij.vssSupport.commands.VSSExecUtil");
 
-  @NonNls private final static String SYSTEMROOT_VAR = "SYSTEMROOT";
-  @NonNls private final static String TEMP_VAR = "TEMP";
-  @NonNls private final static String USER_SIG_OPTION_PREFIX = " -Y";
+  @NonNls private static final String SYSTEMROOT_VAR = "SYSTEMROOT";
+  @NonNls private static final String TEMP_VAR = "TEMP";
+  @NonNls private static final String USER_SIG_OPTION_PREFIX = " -Y";
 
   private static final int TIMEOUT_LIMIT = 40;
   private static final int TIMEOUT_EXIT_CODE = -1000;
@@ -40,121 +34,125 @@ public class VSSExecUtil
 
   private VSSExecUtil() {}
 
-  public interface UserInput {  void doInput(Writer writer);  }
+  public interface UserInput {
+    void doInput(java.io.Writer writer);
+  }
 
-  public synchronized static void runProcess( @NotNull Project project,
-                                              String exePath, List<String> paremeters,
-                                              HashMap<String, String> envParams, String workingDir,
-                                              VssOutputCollector listener) throws ExecutionException
-  {
+  public synchronized static void runProcess(@NotNull Project project,
+                                             String exePath, List<String> paremeters,
+                                             HashMap<String, String> envParams, String workingDir,
+                                             VssOutputCollector listener) throws ExecutionException {
     String[] programParams = ArrayUtil.toStringArray(paremeters);
-    addVSS2005Values( envParams );
+    addVSS2005Values(envParams);
 
     GeneralCommandLine cmdLine = new GeneralCommandLine();
-    cmdLine.addParameters( programParams );
-    cmdLine.setWorkDirectory( workingDir );
-    cmdLine.getEnvironment().putAll( envParams );
-    cmdLine.setExePath( exePath );
+    cmdLine.addParameters(programParams);
+    cmdLine.setWorkDirectory(workingDir);
+    cmdLine.getEnvironment().putAll(envParams);
+    cmdLine.setExePath(exePath);
 
     LOG.info(cmdLine.getCommandLineString());
 
     final ProgressIndicator progress = ProgressManager.getInstance().getProgressIndicator();
-    if( progress != null )
-    {
-      String descriptor = prepareTitleString( cmdLine.getCommandLineString() );
-      progress.setText2( descriptor );
+    if (progress != null) {
+      String descriptor = prepareTitleString(cmdLine.getCommandLineString());
+      progress.setText2(descriptor);
     }
 
     runProcessImpl(project, listener, cmdLine);
 
-    if( progress != null )
-      progress.setText( "" );
+    if (progress != null) {
+      progress.setText("");
+    }
   }
 
-  private static void runProcessImpl(@NotNull final Project project, VssOutputCollector listener, GeneralCommandLine cmdLine) throws ExecutionException {
+  private static void runProcessImpl(@NotNull final Project project, VssOutputCollector listener, GeneralCommandLine cmdLine)
+    throws ExecutionException {
     Process process = null;
-    VssProcess worker = null;
-    ProcessWaiter<VssStreamReader> waiter = null;
+    VssStreamReader outListener = null;
+    VssStreamReader errListener = null;
+    Thread outThread = null;
+    Thread errThread = null;
     try {
       int rc = DEFAULT_ERROR_EXIT_CODE;
-      try
-      {
+      try {
         process = cmdLine.createProcess();
-        worker = new VssProcess(process, project);
+        outListener = new VssStreamReader(process.getInputStream(), project);
+        errListener = new VssStreamReader(process.getErrorStream(), project);
+        outThread = new Thread(outListener, "VSS stdout");
+        errThread = new Thread(errListener, "VSS stderr");
+        outThread.start();
+        errThread.start();
 
-        waiter = new ProcessWaiter<VssStreamReader>() {
-          protected VssStreamReader createStreamListener(InputStream stream) {
-            return new VssStreamReader(stream, project);
-          }
-        };
+        boolean completed = process.waitFor(TIMEOUT_LIMIT, TimeUnit.SECONDS);
+        if (!completed) {
+          rc = TIMEOUT_EXIT_CODE;
+          process.destroyForcibly();
+        }
+        else {
+          rc = process.exitValue();
+        }
 
-        rc = waiter.execute(worker, TIMEOUT_LIMIT * 1000);
+        joinQuietly(outThread);
+        joinQuietly(errThread);
       }
-      catch( java.util.concurrent.ExecutionException e ){
-        listener.onCommandCriticalFail( e.getMessage() );
+      catch (ExecutionException e) {
+        listener.onCommandCriticalFail(e.getMessage());
+        return;
       }
-      catch( IOException e ) {
-        listener.onCommandCriticalFail( e.getMessage() );
-      }
-      catch( InterruptedException e ) {
-        listener.onCommandCriticalFail( e.getMessage() );
-      }
-      catch (TimeoutException e) {
-        rc = TIMEOUT_EXIT_CODE;
+      catch (InterruptedException e) {
+        listener.onCommandCriticalFail(e.getMessage());
+        return;
       }
 
-      //-------------------------------------------------------------------------
-      //  Process is either exits by itself with some exit code or it is aborted
-      //  by the timeout.
-      //  In the former case we PRE-analyze output and error streams, trying to
-      //  find most general error messages which require for the process to be
-      //  aborted abnormally. In the case of normal exit we notify the
-      //  VssOutputCollector instance with the result output string.
-      //-------------------------------------------------------------------------
-      if( rc == TIMEOUT_EXIT_CODE )
-      {
-        listener.onCommandCriticalFail( VssBundle.message( "message.text.process.shutdown.on.timeout" ) );
-        LOG.info( "++ Command Shutdown detected ++");
-      } else if (waiter.getInStreamListener().getReason() != null || waiter.getErrStreamListener().getReason() != null ) {
-        String reason = (waiter.getInStreamListener().getReason() != null) ?
-                        waiter.getInStreamListener().getReason() : waiter.getErrStreamListener().getReason();
-
-        LOG.info( "++ Critical error detected: " + reason );
-        listener.setExitCode( worker.getExitCode() );
-        listener.onCommandCriticalFail( reason );
-        listener.everythingFinishedImpl( reason );
-
-        //  Hack: there is no known (so far) way to give the necessary sequence of
-        //  characters to the input of the SS.EXE process to emulate "Enter" on its
-        //  request to reenter the password. Thus we simply notify the parent process
-        //  that it should finish.
-        worker.destroy();
+      if (rc == TIMEOUT_EXIT_CODE) {
+        listener.onCommandCriticalFail(VssBundle.message("message.text.process.shutdown.on.timeout"));
+        LOG.info("++ Command Shutdown detected ++");
       }
-      else
-      {
-        String text = waiter.getErrStreamListener().getReadString() + waiter.getInStreamListener().getReadString();
+      else if (outListener.getReason() != null || errListener.getReason() != null) {
+        String reason = outListener.getReason() != null ? outListener.getReason() : errListener.getReason();
 
-        listener.setExitCode( worker.getExitCode() );
-        listener.everythingFinishedImpl( text );
+        LOG.info("++ Critical error detected: " + reason);
+        listener.setExitCode(rc);
+        listener.onCommandCriticalFail(reason);
+        listener.everythingFinishedImpl(reason);
+
+        if (process != null && process.isAlive()) {
+          process.destroyForcibly();
+        }
       }
-    } finally {
-      if (worker != null) {
-        worker.closeProcess();
-      } else if ((worker == null) && (process != null)) {
-        InterruptibleProcess.close(process);
+      else {
+        String text = errListener.getReadString() + outListener.getReadString();
+
+        listener.setExitCode(rc);
+        listener.everythingFinishedImpl(text);
+      }
+    }
+    finally {
+      if (process != null && process.isAlive()) {
+        process.destroyForcibly();
       }
     }
   }
 
-  public static void runProcessDoNotWaitForTermination( String exePath, String[] programParms,
-                                                        HashMap<String, String> envParams ) throws ExecutionException
-  {
-    addVSS2005Values( envParams );
+  private static void joinQuietly(Thread thread) {
+    if (thread != null) {
+      try {
+        thread.join(5000);
+      }
+      catch (InterruptedException ignored) {
+      }
+    }
+  }
+
+  public static void runProcessDoNotWaitForTermination(String exePath, String[] programParms,
+                                                       HashMap<String, String> envParams) throws ExecutionException {
+    addVSS2005Values(envParams);
 
     GeneralCommandLine commandLine = new GeneralCommandLine();
     commandLine.addParameters(programParms);
-    commandLine.getEnvironment().putAll( envParams );
-    commandLine.setExePath( exePath );
+    commandLine.getEnvironment().putAll(envParams);
+    commandLine.setExePath(exePath);
 
     final OSProcessHandler result = new OSProcessHandler(commandLine);
     result.startNotify();
@@ -164,46 +162,29 @@ public class VSSExecUtil
    * Add two system environment variables to the environment of this process.
    * This is required for Visual SourceSafe 2005 support.
    */
-  private static void addVSS2005Values( HashMap<String, String> envParams )
-  {
-    String sysRootVar = System.getenv( SYSTEMROOT_VAR );
-    String tempVar = System.getenv( TEMP_VAR );
-    if( sysRootVar != null )
-      envParams.put( SYSTEMROOT_VAR, sysRootVar );
-    if( tempVar != null )
-      envParams.put( TEMP_VAR, tempVar );
+  private static void addVSS2005Values(HashMap<String, String> envParams) {
+    String sysRootVar = System.getenv(SYSTEMROOT_VAR);
+    String tempVar = System.getenv(TEMP_VAR);
+    if (sysRootVar != null) {
+      envParams.put(SYSTEMROOT_VAR, sysRootVar);
+    }
+    if (tempVar != null) {
+      envParams.put(TEMP_VAR, tempVar);
+    }
   }
 
-  private static String  prepareTitleString( String original )
-  {
+  private static String prepareTitleString(String original) {
     String result = original;
-    int index = result.indexOf( USER_SIG_OPTION_PREFIX );
-    if( index != -1 )
-    {
-      int blankIndex = result.indexOf( ' ', index + 2 );
-      if( blankIndex == -1 )
-        result = result.substring( 0, index );
-      else
-        result = result.substring( 0, index ) + result.substring( blankIndex );
+    int index = result.indexOf(USER_SIG_OPTION_PREFIX);
+    if (index != -1) {
+      int blankIndex = result.indexOf(' ', index + 2);
+      if (blankIndex == -1) {
+        result = result.substring(0, index);
+      }
+      else {
+        result = result.substring(0, index) + result.substring(blankIndex);
+      }
     }
     return result;
-  }
-
-  private static class VssProcess extends InterruptibleProcess
-  {
-    @NotNull private final Project project;
-    public VssProcess( Process process, @NotNull Project project )
-    {
-      super( process, TIMEOUT_LIMIT, TimeUnit.SECONDS );
-      this.project = project;
-    }
-    public void destroy()        {  super.interrupt();  }
-    public int  processTimeout() {  return TIMEOUT_EXIT_CODE;  }
-
-    @Override
-    protected int processTimeoutInEDT()
-    {
-      return project.isDisposed() ? TIMEOUT_EXIT_CODE : super.processTimeoutInEDT();
-    }
   }
 }
