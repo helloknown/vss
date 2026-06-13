@@ -1,7 +1,7 @@
 <idea-plugin>
     <name>Visual SourceSafe Integration</name>
     <id>SourceSafe</id>
-    <version>1.0.0</version>
+    <version>1.1.0</version>
     <description>
         <![CDATA[
        <a href="http://msdn.microsoft.com/en-us/library/3h0544kx(v=vs.80).aspx">Visual SourceSafe</a> is a file-level version control system.
@@ -30,8 +30,13 @@
         <vcsCheckinHandlerFactory implementation="com.intellij.vssSupport.VssVcsCheckinHandlerFactory"/>
 
         <projectService serviceImplementation="com.intellij.vssSupport.VssVcs"/>
+        <projectService serviceImplementation="com.intellij.vssSupport.occupancy.VssFileOccupancyService"/>
 
         <postStartupActivity implementation="com.intellij.vssSupport.Configuration.VssMappingStartupActivity"/>
+
+        <statusBarWidgetFactory id="VssOccupancyStatus"
+                                implementation="com.intellij.vssSupport.occupancy.VssOccupancyStatusBarWidget$Factory"/>
+        <editorNotificationProvider implementation="com.intellij.vssSupport.occupancy.VssOccupancyEditorNotifier"/>
     </extensions>
 
     <actions>
@@ -54,6 +59,7 @@
             <reference id="CheckinFiles"/>
             <action id="Vss.Add" class="com.intellij.vssSupport.actions.AddAction"/>
             <action id="Vss.Label" class="com.intellij.vssSupport.actions.LabelAction"/>
+            <action id="Vss.Properties" class="com.intellij.vssSupport.actions.PropertiesAction"/>
             <separator/>
             <reference id="Vcs.ShowTabbedFileHistory"/>
             <action id="Vss.Diff" class="com.intellij.vssSupport.actions.DiffAction"/>

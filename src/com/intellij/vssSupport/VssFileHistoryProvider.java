@@ -1,309 +1,313 @@
-/*
- * Copyright 2000-2006 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-package com.intellij.vssSupport;
-
-import com.intellij.openapi.actionSystem.AnAction;
-import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.io.FileUtil;
-import com.intellij.openapi.vcs.FilePath;
-import com.intellij.openapi.vcs.RepositoryLocation;
-import com.intellij.openapi.vcs.VcsException;
-import com.intellij.openapi.vcs.history.*;
-import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.util.ArrayUtil;
-import com.intellij.util.ui.ColumnInfo;
-import com.intellij.util.ui.JBUI;
-import com.intellij.vcsUtil.VcsUtil;
-import com.intellij.vssSupport.commands.GetFileCommand;
-import com.intellij.vssSupport.commands.HistoryCommand;
-import com.intellij.vssSupport.commands.HistoryParser;
-import org.jetbrains.annotations.NonNls;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
-
-import javax.swing.*;
-import java.io.File;
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.Date;
-import java.util.List;
-
-public class VssFileHistoryProvider implements VcsHistoryProvider
-{
-  @NonNls private final static String DATE_COLUMN = "Date";
-  @NonNls private final static String ACTION_COLUMN = "Action";
-  @NonNls private final static String LABEL_COLUMN = "Label";
-
-  @NonNls private static final String DATE_WIDTH_SAMPLE = "26/06/09 12:45p";
-  @NonNls private static final String ACTION_WIDTH_SAMPLE = "Checked in";
-  @NonNls private static final String LABEL_WIDTH_SAMPLE = "Release_1.0";
-
-  private static final Logger LOG = Logger.getInstance("#com.intellij.vssSupport.VssFileHistoryProvider");
-
-  private final Project project;
-
-  private static final ColumnInfo<VcsFileRevision, String> DATE = new WidthHintColumn(DATE_COLUMN, DATE_WIDTH_SAMPLE)
-  {
-    @Override
-    public String valueOf(VcsFileRevision vcsFileRevision) {
-      if (!(vcsFileRevision instanceof VssFileRevision)) return "";
-      return ((VssFileRevision) vcsFileRevision).getDate();
-    }
-
-    @Override
-    public Comparator<VcsFileRevision> getComparator() {
-      return (o1, o2) -> {
-        if (!(o1 instanceof VssFileRevision)) return 0;
-        if (!(o2 instanceof VssFileRevision)) return 0;
-        return ((VssFileRevision) o1).compareTo(o2);
-      };
-    }
-  };
-
-  private static final ColumnInfo<VcsFileRevision, String> ACTION = new WidthHintColumn(ACTION_COLUMN, ACTION_WIDTH_SAMPLE)
-  {
-    @Override
-    public String valueOf(VcsFileRevision vcsFileRevision) {
-      if (!(vcsFileRevision instanceof VssFileRevision)) return "";
-      return ((VssFileRevision) vcsFileRevision).getAction();
-    }
-  };
-
-  private static final ColumnInfo<VcsFileRevision, String> LABEL = new WidthHintColumn(LABEL_COLUMN, LABEL_WIDTH_SAMPLE)
-  {
-    @Override
-    public String valueOf(VcsFileRevision vcsFileRevision) {
-      if (!(vcsFileRevision instanceof VssFileRevision)) return "";
-      return ((VssFileRevision) vcsFileRevision).getLabel();
-    }
-  };
-
-  private abstract static class WidthHintColumn extends ColumnInfo<VcsFileRevision, String> {
-    private final String widthSample;
-
-    WidthHintColumn(@NonNls String name, @NonNls String widthSample) {
-      super(name);
-      this.widthSample = widthSample;
-    }
-
-    @Override
-    public @Nullable String getPreferredStringValue() {
-      return widthSample;
-    }
-
-    @Override
-    public @Nullable String getMaxStringValue() {
-      return widthSample;
-    }
-
-    @Override
-    public int getAdditionalWidth() {
-      return JBUI.scale(16);
-    }
-  }
-
-  public VssFileHistoryProvider( Project project )
-  {
-    this.project = project;
-  }
-
-  @NonNls @Nullable
-  public String getHelpId() {  return null;  }
-
-  public boolean supportsHistoryForDirectories() {
-    return false;
-  }
-
-  @Override
-  public DiffFromHistoryHandler getHistoryDiffHandler() {
-    return null;
-  }
-
-  @Override
-  public boolean canShowHistoryFor(@NotNull VirtualFile file) {
-    return true;
-  }
-
-  public VcsDependentHistoryComponents getUICustomization(final VcsHistorySession session, JComponent forShortcutRegistration) {
-    VssHistoryTableColumns.installWidthHints(forShortcutRegistration);
-    return VcsDependentHistoryComponents.createOnlyColumns(new ColumnInfo[] { DATE, ACTION, LABEL });
-  }
-
-  public AnAction[] getAdditionalActions(final Runnable refresher) {  return AnAction.EMPTY_ARRAY;   }
-
-  public boolean isDateOmittable() {  return true;  }
-
-  public VcsHistorySession createSessionFor(FilePath filePath) throws VcsException
-  {
-    List<VcsException> errors = new ArrayList<>();
-
-  //  Take care of renamed files - refer to the original file name in the repository.
-    VssVcs host = VssVcs.getInstance(project);
-    String path = filePath.getPath();
-    if (host != null && host.renamedFiles.containsKey(path)) {
-      path = host.renamedFiles.get(path);
-    }
-
-    FilePath historyPath = path.equals(filePath.getPath())
-                           ? filePath
-                           : VcsUtil.getFilePath(path, filePath.isDirectory());
-
-    HistoryCommand cmd = new HistoryCommand(project, historyPath, errors);
-    cmd.execute();
-
-    if (errors.size() > 0) {
-      throw errors.get(0);
-    }
-
-    ArrayList<VcsFileRevision> revisions = new ArrayList<>();
-    if (cmd.changes != null) {
-      for (HistoryParser.SubmissionData change : cmd.changes) {
-        revisions.add(new VssFileRevision(change, filePath));
-      }
-    }
-
-    return new VssHistorySession(revisions);
-  }
-
-  public void reportAppendableHistory(FilePath path, VcsAppendableHistorySessionPartner partner) throws VcsException {
-    final VcsHistorySession session = createSessionFor(path);
-    partner.reportCreatedEmptySession((VcsAbstractHistorySession) session);
-  }
-
-  private class VssFileRevision implements VcsFileRevision
-  {
-    private final int    version;
-    private final int    order;
-    private final String submitter;
-    private final String comment;
-    private final String action;
-    private final String label;
-    private final String vssDate;
-
-    private final FilePath path;
-    private byte[] content;
-
-    public VssFileRevision( HistoryParser.SubmissionData data, FilePath path )
-    {
-      version = Integer.parseInt( data.version );
-      action = data.action;
-      label = data.label;
-      submitter = data.submitter;
-      comment = data.comment;
-      order = data.order;
-      vssDate = data.changeDate;
-
-      this.path = path;
-    }
-
-    @Nullable
-    @Override
-    public RepositoryLocation getChangedRepositoryPath() {
-      return null;
-    }
-
-    @NotNull
-    public VcsRevisionNumber getRevisionNumber() { return new VcsRevisionNumber.Int(version ); }
-    public String getBranchName() { return null;   }
-    public Date getRevisionDate() { return null;   }
-    public int    getOrder()      { return order;  }
-    public String getDate()       { return vssDate;}
-    public String getAction()     { return action; }
-    public String getLabel()      { return label;  }
-    public String getAuthor()     { return submitter; }
-    public String getCommitMessage() { return comment; }
-
-    public byte[] getContent() { return content; }
-
-    public byte[] loadContent() {
-      ArrayList<VcsException> errors = new ArrayList<>();
-      String tmpDir = FileUtil.getTempDirectory();
-      
-      GetFileCommand cmd = new GetFileCommand( project, path.getPath(), Integer.toString( version ), errors );
-      cmd.setOutputPath( tmpDir );
-      cmd.execute();
-
-      File fileContent = new File( tmpDir, path.getName() );
-      content = ArrayUtil.EMPTY_BYTE_ARRAY;
-      try
-      {
-        content = FileUtil.loadFileBytes( fileContent );
-        fileContent.delete();
-      }
-      catch( IOException e ){
-        LOG.error( e.getMessage() );
-      }
-      return content;
-    }
-
-    public int compareTo( Object revision )
-    {
-      int revOrder = ((VssFileRevision)revision).getOrder();
-      if( order > revOrder )
-        return -1;
-      else
-      if( order < revOrder )
-        return 1;
-      else
-        return 0;
-    }
-  }
-
-  private static class VssHistorySession extends VcsAbstractHistorySession
-  {
-    public VssHistorySession( List<VcsFileRevision> revs )
-    {
-      super( revs );
-    }
-
-    protected VcsRevisionNumber calcCurrentRevisionNumber()
-    {
-      VcsRevisionNumber revision;
-      try
-      {
-        int maxRevision = 0;
-        for( VcsFileRevision rev : getRevisionList() )
-        {
-          maxRevision = Math.max( maxRevision, ((VssFileRevision)rev).getOrder() );
-        }
-        revision = new VcsRevisionNumber.Int( maxRevision + 1 );
-      }
-      catch( Exception e )
-      {
-        revision = VcsRevisionNumber.NULL;
-      }
-      return revision;
-    }
-
-    public HistoryAsTreeProvider getHistoryAsTreeProvider() {
-      return null;
-    }
-
-    @Override
-    public synchronized boolean shouldBeRefreshed() {
-      return false;
-    }
-
-    @Override
-    public VcsHistorySession copy() {
-      return new VssHistorySession(getRevisionList());
-    }
-  }
-}
-
+/*
+ * Copyright 2000-2006 JetBrains s.r.o.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.intellij.vssSupport;
+
+import com.intellij.openapi.actionSystem.AnAction;
+import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.openapi.vcs.FilePath;
+import com.intellij.openapi.vcs.RepositoryLocation;
+import com.intellij.openapi.vcs.VcsException;
+import com.intellij.openapi.vcs.history.*;
+import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.util.ArrayUtil;
+import com.intellij.util.ui.ColumnInfo;
+import com.intellij.util.ui.JBUI;
+import com.intellij.vcsUtil.VcsUtil;
+import com.intellij.vssSupport.commands.GetFileCommand;
+import com.intellij.vssSupport.commands.HistoryCommand;
+import com.intellij.vssSupport.commands.HistoryParser;
+import com.intellij.vssSupport.history.VssHistoryDiffHandler;
+import com.intellij.vssSupport.actions.GetRevisionToWorkingCopyAction;
+import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+
+import javax.swing.*;
+import java.io.File;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.Date;
+import java.util.List;
+
+public class VssFileHistoryProvider implements VcsHistoryProvider
+{
+  @NonNls private final static String DATE_COLUMN = "Date";
+  @NonNls private final static String ACTION_COLUMN = "Action";
+  @NonNls private final static String LABEL_COLUMN = "Label";
+
+  @NonNls private static final String DATE_WIDTH_SAMPLE = "26/06/09 12:45p";
+  @NonNls private static final String ACTION_WIDTH_SAMPLE = "Checked in";
+  @NonNls private static final String LABEL_WIDTH_SAMPLE = "Release_1.0";
+
+  private static final Logger LOG = Logger.getInstance("#com.intellij.vssSupport.VssFileHistoryProvider");
+
+  private final Project project;
+
+  private static final ColumnInfo<VcsFileRevision, String> DATE = new WidthHintColumn(DATE_COLUMN, DATE_WIDTH_SAMPLE)
+  {
+    @Override
+    public String valueOf(VcsFileRevision vcsFileRevision) {
+      if (!(vcsFileRevision instanceof VssFileRevision)) return "";
+      return ((VssFileRevision) vcsFileRevision).getDate();
+    }
+
+    @Override
+    public Comparator<VcsFileRevision> getComparator() {
+      return (o1, o2) -> {
+        if (!(o1 instanceof VssFileRevision)) return 0;
+        if (!(o2 instanceof VssFileRevision)) return 0;
+        return ((VssFileRevision) o1).compareTo(o2);
+      };
+    }
+  };
+
+  private static final ColumnInfo<VcsFileRevision, String> ACTION = new WidthHintColumn(ACTION_COLUMN, ACTION_WIDTH_SAMPLE)
+  {
+    @Override
+    public String valueOf(VcsFileRevision vcsFileRevision) {
+      if (!(vcsFileRevision instanceof VssFileRevision)) return "";
+      return ((VssFileRevision) vcsFileRevision).getAction();
+    }
+  };
+
+  private static final ColumnInfo<VcsFileRevision, String> LABEL = new WidthHintColumn(LABEL_COLUMN, LABEL_WIDTH_SAMPLE)
+  {
+    @Override
+    public String valueOf(VcsFileRevision vcsFileRevision) {
+      if (!(vcsFileRevision instanceof VssFileRevision)) return "";
+      return ((VssFileRevision) vcsFileRevision).getLabel();
+    }
+  };
+
+  private abstract static class WidthHintColumn extends ColumnInfo<VcsFileRevision, String> {
+    private final String widthSample;
+
+    WidthHintColumn(@NonNls String name, @NonNls String widthSample) {
+      super(name);
+      this.widthSample = widthSample;
+    }
+
+    @Override
+    public @Nullable String getPreferredStringValue() {
+      return widthSample;
+    }
+
+    @Override
+    public @Nullable String getMaxStringValue() {
+      return widthSample;
+    }
+
+    @Override
+    public int getAdditionalWidth() {
+      return JBUI.scale(16);
+    }
+  }
+
+  public VssFileHistoryProvider( Project project )
+  {
+    this.project = project;
+  }
+
+  @NonNls @Nullable
+  public String getHelpId() {  return null;  }
+
+  public boolean supportsHistoryForDirectories() {
+    return false;
+  }
+
+  @Override
+  public DiffFromHistoryHandler getHistoryDiffHandler() {
+    return new VssHistoryDiffHandler(project);
+  }
+
+  @Override
+  public boolean canShowHistoryFor(@NotNull VirtualFile file) {
+    return true;
+  }
+
+  public VcsDependentHistoryComponents getUICustomization(final VcsHistorySession session, JComponent forShortcutRegistration) {
+    VssHistoryTableColumns.installWidthHints(forShortcutRegistration);
+    return VcsDependentHistoryComponents.createOnlyColumns(new ColumnInfo[] { DATE, ACTION, LABEL });
+  }
+
+  public AnAction[] getAdditionalActions(final Runnable refresher) {
+    return new AnAction[] { new GetRevisionToWorkingCopyAction() };
+  }
+
+  public boolean isDateOmittable() {  return true;  }
+
+  public VcsHistorySession createSessionFor(FilePath filePath) throws VcsException
+  {
+    List<VcsException> errors = new ArrayList<>();
+
+  //  Take care of renamed files - refer to the original file name in the repository.
+    VssVcs host = VssVcs.getInstance(project);
+    String path = filePath.getPath();
+    if (host != null && host.renamedFiles.containsKey(path)) {
+      path = host.renamedFiles.get(path);
+    }
+
+    FilePath historyPath = path.equals(filePath.getPath())
+                           ? filePath
+                           : VcsUtil.getFilePath(path, filePath.isDirectory());
+
+    HistoryCommand cmd = new HistoryCommand(project, historyPath, errors);
+    cmd.execute();
+
+    if (errors.size() > 0) {
+      throw errors.get(0);
+    }
+
+    ArrayList<VcsFileRevision> revisions = new ArrayList<>();
+    if (cmd.changes != null) {
+      for (HistoryParser.SubmissionData change : cmd.changes) {
+        revisions.add(new VssFileRevision(change, filePath));
+      }
+    }
+
+    return new VssHistorySession(revisions);
+  }
+
+  public void reportAppendableHistory(FilePath path, VcsAppendableHistorySessionPartner partner) throws VcsException {
+    final VcsHistorySession session = createSessionFor(path);
+    partner.reportCreatedEmptySession((VcsAbstractHistorySession) session);
+  }
+
+  private class VssFileRevision implements VcsFileRevision
+  {
+    private final int    version;
+    private final int    order;
+    private final String submitter;
+    private final String comment;
+    private final String action;
+    private final String label;
+    private final String vssDate;
+
+    private final FilePath path;
+    private byte[] content;
+
+    public VssFileRevision( HistoryParser.SubmissionData data, FilePath path )
+    {
+      version = Integer.parseInt( data.version );
+      action = data.action;
+      label = data.label;
+      submitter = data.submitter;
+      comment = data.comment;
+      order = data.order;
+      vssDate = data.changeDate;
+
+      this.path = path;
+    }
+
+    @Nullable
+    @Override
+    public RepositoryLocation getChangedRepositoryPath() {
+      return null;
+    }
+
+    @NotNull
+    public VcsRevisionNumber getRevisionNumber() { return new VcsRevisionNumber.Int(version ); }
+    public String getBranchName() { return null;   }
+    public Date getRevisionDate() { return null;   }
+    public int    getOrder()      { return order;  }
+    public String getDate()       { return vssDate;}
+    public String getAction()     { return action; }
+    public String getLabel()      { return label;  }
+    public String getAuthor()     { return submitter; }
+    public String getCommitMessage() { return comment; }
+
+    public byte[] getContent() { return content; }
+
+    public byte[] loadContent() {
+      ArrayList<VcsException> errors = new ArrayList<>();
+      String tmpDir = FileUtil.getTempDirectory();
+      
+      GetFileCommand cmd = new GetFileCommand( project, path.getPath(), Integer.toString( version ), errors );
+      cmd.setOutputPath( tmpDir );
+      cmd.execute();
+
+      File fileContent = new File( tmpDir, path.getName() );
+      content = ArrayUtil.EMPTY_BYTE_ARRAY;
+      try
+      {
+        content = FileUtil.loadFileBytes( fileContent );
+        fileContent.delete();
+      }
+      catch( IOException e ){
+        LOG.error( e.getMessage() );
+      }
+      return content;
+    }
+
+    public int compareTo( Object revision )
+    {
+      int revOrder = ((VssFileRevision)revision).getOrder();
+      if( order > revOrder )
+        return -1;
+      else
+      if( order < revOrder )
+        return 1;
+      else
+        return 0;
+    }
+  }
+
+  private static class VssHistorySession extends VcsAbstractHistorySession
+  {
+    public VssHistorySession( List<VcsFileRevision> revs )
+    {
+      super( revs );
+    }
+
+    protected VcsRevisionNumber calcCurrentRevisionNumber()
+    {
+      VcsRevisionNumber revision;
+      try
+      {
+        int maxRevision = 0;
+        for( VcsFileRevision rev : getRevisionList() )
+        {
+          maxRevision = Math.max( maxRevision, ((VssFileRevision)rev).getOrder() );
+        }
+        revision = new VcsRevisionNumber.Int( maxRevision + 1 );
+      }
+      catch( Exception e )
+      {
+        revision = VcsRevisionNumber.NULL;
+      }
+      return revision;
+    }
+
+    public HistoryAsTreeProvider getHistoryAsTreeProvider() {
+      return null;
+    }
+
+    @Override
+    public synchronized boolean shouldBeRefreshed() {
+      return false;
+    }
+
+    @Override
+    public VcsHistorySession copy() {
+      return new VssHistorySession(getRevisionList());
+    }
+  }
+}
+

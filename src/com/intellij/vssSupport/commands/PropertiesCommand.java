@@ -4,7 +4,10 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vcs.VcsException;
 import com.intellij.vssSupport.VssOutputCollector;
 import com.intellij.vssSupport.VssUtil;
+import com.intellij.vssSupport.occupancy.VssPropertiesInfo;
+import com.intellij.vssSupport.occupancy.VssPropertiesParser;
 import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -18,6 +21,7 @@ public class PropertiesCommand extends VssCommandAbstract
   private final String vssPath;
   private final String tmpPath;
   private boolean isValidRepositoryObject;
+  @Nullable private VssPropertiesInfo propertiesInfo;
 
   public PropertiesCommand( Project project, String path, boolean isFolder )
   {
@@ -41,6 +45,11 @@ public class PropertiesCommand extends VssCommandAbstract
 
   public boolean isValidRepositoryObject() {  return isValidRepositoryObject;  }
 
+  @Nullable
+  public VssPropertiesInfo getPropertiesInfo() {
+    return propertiesInfo;
+  }
+
   /**
    * Use this listener to catch messages from "Properties" VSS command.
    */
@@ -53,6 +62,7 @@ public class PropertiesCommand extends VssCommandAbstract
 
     public void everythingFinishedImpl( final String output )
     {
+      propertiesInfo = VssPropertiesParser.parse(output);
       if( output.indexOf( NOT_EXISTING_MESSAGE ) != -1 ||
           output.indexOf( VSS_PROJECT_DELETED ) != -1 )
         isValidRepositoryObject = false;
