@@ -45,7 +45,18 @@ public final class VssOccupancyStatusBarWidget extends EditorBasedWidget impleme
     Disposer.register(this, () -> text.set(VssBundle.message("statusbar.vss.occupancy.idle")));
   }
 
-  private void refreshForFile(VirtualFile file) {
+  public static void refreshIfShowing(@NotNull Project project, @NotNull VirtualFile file) {
+    StatusBar statusBar = WindowManager.getInstance().getStatusBar(project);
+    if (statusBar == null) {
+      return;
+    }
+    StatusBarWidget widget = statusBar.getWidget(WIDGET_ID);
+    if (widget instanceof VssOccupancyStatusBarWidget) {
+      ((VssOccupancyStatusBarWidget)widget).refreshForFile(file);
+    }
+  }
+
+  public void refreshForFile(VirtualFile file) {
     if (file.isDirectory() || VssVcs.getInstance(getProject()) == null) {
       text.set("");
       updateWidget();

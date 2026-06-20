@@ -41,7 +41,7 @@ public class UndocheckoutFilesCommand extends VssCommandAbstract
     {
       List<String> options = baseOptions.getOptions( myFiles[ i ] );
       String workingPath = myFiles[ i ].getParent().getPath().replace( '/', File.separatorChar );
-      listener.setFileName( myFiles[ i ].getPath() );
+      listener.setFile( myFiles[ i ] );
 
       // If options specify "ask before replace", Undocheckout runs with -I-N option.
       // This causes replacement of unchanged file but the confirmation is requested
@@ -106,8 +106,9 @@ public class UndocheckoutFilesCommand extends VssCommandAbstract
 
   private class UndocheckoutListenerNew extends VssOutputCollector
   {
+    private VirtualFile file;
     private String fileName;
-    @NonNls private static final String CHECKED_OUT_MESSAGE = "currently checked out";
+    @NonNls private static final String NOT_CHECKED_OUT_BY_USER_MESSAGE = "do not have file";
     @NonNls private static final String NOT_EXISTING_MESSAGE = "is not an existing";
     @NonNls private static final String DELETED_MESSAGE = "has been deleted";
     @NonNls private static final String NOT_FROM_CURRENT_MESSAGE = "not from the current folder";
@@ -117,13 +118,14 @@ public class UndocheckoutFilesCommand extends VssCommandAbstract
       super( errors );
     }
 
-    public void setFileName( String name ){
-      fileName = name;
+    public void setFile( VirtualFile virtualFile ){
+      file = virtualFile;
+      fileName = virtualFile.getPath();
     }
 
     public void everythingFinishedImpl( final String output )
     {
-      if( output.indexOf( CHECKED_OUT_MESSAGE ) != -1 )
+      if( output.indexOf( NOT_CHECKED_OUT_BY_USER_MESSAGE ) != -1 )
           myErrors.add( new VcsException( VssBundle.message("message.text.file.not.checked.out", fileName ) ));
       else 
       if( output.indexOf( NOT_EXISTING_MESSAGE ) != -1 )
@@ -139,7 +141,11 @@ public class UndocheckoutFilesCommand extends VssCommandAbstract
         needToAsk = true;
       else
       if( VssUtil.EXIT_CODE_SUCCESS == getExitCode() || VssUtil.EXIT_CODE_WARNING == getExitCode() )
+      {
         VssUtil.showStatusMessage( myProject, VssBundle.message("message.text.undo.successfully", fileName ));
+        if( file != null )
+          VssUtil.afterUndoCheckout( myProject, file, myConfig.getUndocheckoutOptions().MAKE_WRITABLE );
+      }
       else
         myErrors.add( new VcsException( output ));
     }

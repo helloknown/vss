@@ -1,20 +1,49 @@
-[![obsolete JetBrains project](http://jb.gg/badges/obsolete.svg)](https://confluence.jetbrains.com/display/ALL/JetBrains+on+GitHub)
+# IntelliJ Visual SourceSafe Integration
 
-IntelliJ Visual SourceSafe Integration
-==
+Visual SourceSafe (VSS) plugin for IntelliJ IDEA and compatible JetBrains IDEs.
 
-The plugin provides IntelliJ integration with <a href="http://msdn.microsoft.com/en-us/library/3h0544kx(v=vs.80).aspx">Microsoft Visual SourceSafe.</a>
+This repository is a maintained fork of the [original JetBrains project](https://github.com/JetBrains/vss). The upstream project is no longer actively maintained; this fork keeps the plugin working on recent IDE versions and adds fixes and improvements.
+
+The plugin provides IntelliJ integration with [Microsoft Visual SourceSafe](http://msdn.microsoft.com/en-us/library/3h0544kx(v=vs.80).aspx).
 
 Visual SourceSafe is a file-level version control system. This plugin allows using it from within the product, making even refactoring consequences transparent for the user.
 
-The following features are available:
-* Dedicated page under the Version Control node in the Settings/Preferences dialog
-* Implementing the most frequently needed commands (Open Source Safe Explorer, Check In/Out, Add, Undo Checkout, Get Latest Version) 
-* Next, Previous, Rollback, Old text actions are available from the dedicated gutter bar in changed locations.
+## Features
 
-###To build and run the plugin:
-1. Clone the project and open in IDEA (tfsintegration.iml should be used)
-2. Configure IntelliJ Platform Plugin SDK called **IntelliJ IDEA SDK** pointing to the existing IDEA installation using Project Settings
-3. Run using provided **Plugin** run configuration
-4. After applying hte needed changes use *Build - Prepare Plugin Module for deployment* to generate the jar
-5. Load the jar using *Settings/Preferences - Plugins*
+* Dedicated page under the Version Control node in Settings/Preferences
+* Frequently used commands: Open Source Safe Explorer, Check In/Out, Add, Undo Checkout, Get Latest Version
+* Next, Previous, Rollback, and Old text actions from the gutter bar in changed locations
+* Checkout occupancy indicators and status bar integration
+
+## Requirements
+
+* JDK 17+
+* IntelliJ IDEA 2024.2 or later (Community or Ultimate)
+
+## Build and run
+
+1. Clone this repository and open it in IntelliJ IDEA.
+2. Ensure the Gradle wrapper is used (the project uses the IntelliJ Platform Gradle Plugin).
+3. Run the **Run Plugin** Gradle task, or use the **Plugin** run configuration if present.
+4. To build a distributable plugin JAR:
+
+   ```bash
+   ./gradlew buildPlugin
+   ```
+
+   On Windows:
+
+   ```bash
+   gradlew.bat buildPlugin
+   ```
+
+   The JAR is generated under `build/distributions/`.
+5. Install the JAR via **Settings/Preferences → Plugins → Install Plugin from Disk**.
+
+## Version
+
+Current plugin version: **1.1.0** (see `gradle.properties`).
+
+## License
+
+See [LICENSE.txt](LICENSE.txt).

@@ -47,7 +47,7 @@ public class UndocheckoutDirCommand extends VssCommandAbstract
 
     //  Make "RO" attributes refresh immediately after the undo operation
     //  is finished. Otherwise synch can be made synchronously far later.
-    myDir.refresh( true, true );
+    VssUtil.afterUndoCheckoutDirectory( myProject, myDir );
   }
 
   private class UndoCheckoutListener extends VssOutputCollector

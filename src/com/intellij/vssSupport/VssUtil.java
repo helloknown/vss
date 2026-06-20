@@ -13,9 +13,14 @@ import com.intellij.openapi.vcs.FileStatus;
 import com.intellij.openapi.vcs.FileStatusManager;
 import com.intellij.openapi.vcs.ProjectLevelVcsManager;
 import com.intellij.openapi.vcs.VcsDirectoryMapping;
+import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.vcs.changes.Change;
 import com.intellij.openapi.vcs.changes.ContentRevision;
+import com.intellij.openapi.vcs.changes.VcsDirtyScopeManager;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.ui.EditorNotifications;
+import com.intellij.vssSupport.occupancy.VssFileOccupancyService;
+import com.intellij.vssSupport.occupancy.VssOccupancyStatusBarWidget;
 import com.intellij.util.io.ReadOnlyAttributeUtil;
 import com.intellij.openapi.wm.StatusBar;
 import com.intellij.openapi.wm.WindowManager;
@@ -323,6 +328,55 @@ public final class VssUtil {
       }
     });
     file.refresh(false, false);
+  }
+
+  /**
+   * Syncs IDE state after a successful undo checkout: occupancy cache, VCS dirty scope,
+   * and local read-only attribute (unless the user chose to keep the file writable).
+   */
+  public static void afterUndoCheckout(@NotNull Project project, @NotNull VirtualFile file, boolean keepWritable) {
+    if (project.isDisposed()) {
+      return;
+    }
+
+    FilePath path = VcsUtil.getFilePath(file);
+    VssFileOccupancyService occupancyService = VssFileOccupancyService.getInstance(project);
+    occupancyService.invalidate(path);
+
+    if (!keepWritable && file.isWritable()) {
+      ApplicationManager.getApplication().runWriteAction(() -> {
+        try {
+          ReadOnlyAttributeUtil.setReadOnlyAttribute(file, true);
+        }
+        catch (IOException ignored) {
+        }
+      });
+    }
+
+    file.refresh(true, false);
+    VcsDirtyScopeManager.getInstance(project).fileDirty(file);
+
+    ApplicationManager.getApplication().invokeLater(() -> {
+      if (project.isDisposed()) {
+        return;
+      }
+      occupancyService.queryAsync(path, () -> {
+        EditorNotifications.getInstance(project).updateNotifications(file);
+        VirtualFile[] selected = FileEditorManager.getInstance(project).getSelectedFiles();
+        if (selected.length > 0 && selected[0].equals(file)) {
+          VssOccupancyStatusBarWidget.refreshIfShowing(project, file);
+        }
+      });
+    });
+  }
+
+  public static void afterUndoCheckoutDirectory(@NotNull Project project, @NotNull VirtualFile dir) {
+    if (project.isDisposed()) {
+      return;
+    }
+    VssFileOccupancyService.getInstance(project).invalidateAll();
+    dir.refresh(true, true);
+    VcsDirtyScopeManager.getInstance(project).fileDirty(dir);
   }
 
   public static void ensureLocallyWritableOrShowError(Project project, VirtualFile file) {
