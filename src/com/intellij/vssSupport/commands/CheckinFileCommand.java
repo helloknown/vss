@@ -70,8 +70,7 @@ public class CheckinFileCommand extends VssCommandAbstract
       if( isNotExistingMessage(output) || isConflictsMessage(output) ||
           isNoConflictMessage(output) || isHasBeenDeletedMessage(output) ||
           ( isNotFromCurrentFolderMessage(output) && !suppressWarnOnOtherFolder ) ||
-          isNotCurrentlyCheckedOutMessage(output) || isAlreadyCheckedOutMessage(output) ||
-          VssUtil.EXIT_CODE_WARNING == exitCode )
+          isNotCurrentlyCheckedOutMessage(output) || isAlreadyCheckedOutMessage(output) )
       {
         addWarning(output);
       }
@@ -81,6 +80,18 @@ public class CheckinFileCommand extends VssCommandAbstract
       }
       else
       if( processQuestion(output) ){
+      }
+      else
+      if( VssUtil.EXIT_CODE_SUCCESS == exitCode || VssUtil.EXIT_CODE_WARNING == exitCode )
+      {
+        VssUtil.afterCheckin(myProject, myFile, myOptions.KEEP_CHECKED_OUT);
+        if( VssUtil.EXIT_CODE_WARNING == exitCode )
+          addWarning(output);
+      }
+      else
+      if( output != null && !output.isBlank() )
+      {
+        addWarning(output);
       }
     }
 

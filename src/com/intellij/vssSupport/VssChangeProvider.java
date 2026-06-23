@@ -13,7 +13,7 @@ import com.intellij.vcsUtil.VcsImplUtil;
 import com.intellij.vcsUtil.VcsUtil;
 import com.intellij.vssSupport.Configuration.VssConfiguration;
 import com.intellij.vssSupport.Configuration.VssMappingStorage;
-import com.intellij.vssSupport.commands.DirectoryCommand;
+import com.intellij.vssSupport.occupancy.VssDirectoryStatusCache;
 import com.intellij.vssSupport.commands.PropertiesCommand;
 import com.intellij.vssSupport.commands.StatusMultipleCommand;
 import org.jetbrains.annotations.NotNull;
@@ -65,6 +65,13 @@ public class VssChangeProvider implements ChangeProvider
     //-------------------------------------------------------------------------
     if( project.isDisposed() )
       return;
+
+    if (ApplicationManager.getApplication().isDispatchThread()) {
+      LOG.warn("VSS change scan invoked on EDT; deferring to background to avoid UI freeze");
+      ApplicationManager.getApplication().executeOnPooledThread(() ->
+        VcsDirtyScopeManager.getInstance(project).markEverythingDirty());
+      return;
+    }
 
     //validateChangesOverTheHost( dirtyScope );
     logChangesContent( dirtyScope );
@@ -347,28 +354,31 @@ public class VssChangeProvider implements ChangeProvider
                                                 HashSet<String> hijacked )
   {
     ArrayList<VcsException> errors = new ArrayList<>();
-    DirectoryCommand cmd = new DirectoryCommand( project, filePath.getPath(), errors );
-    cmd.execute();
+    VssDirectoryStatusCache.Snapshot snapshot =
+      VssDirectoryStatusCache.getInstance(project).getOrQuery(project, filePath.getPath(), errors);
 
     //  If any error occured, most probably it is the critical one - others are
     //  processed on the "by line" basis (and per file correspondingly).
-    if( errors.size() > 0 )
+    if( errors.size() > 0 || snapshot == null )
     {
-      VcsImplUtil.showErrorMessage(project, cmd.getErrors().get(0).getMessage(),
-                                   VssBundle.message("message.title.check.status"));
+      if (!errors.isEmpty()) {
+        VcsImplUtil.showErrorMessage(project, errors.get(0).getMessage(),
+                                     VssBundle.message("message.title.check.status"));
+      }
     }
     else
     {
+      VssDirectoryStatusCache cache = VssDirectoryStatusCache.getInstance(project);
       for( String path : writableFiles )
       {
         if (progress != null) {
           progress.checkCanceled();
         }
         String oldPath = VssChangeProvider.discoverOldName( host, path ).toLowerCase();
-        if( !cmd.isInProject( oldPath ) )
+        if( !cache.isInProject(snapshot, oldPath) )
           newFiles.add( path );
         else
-        if( !cmd.isCheckedOut( oldPath ))
+        if( !cache.isCheckedOut(snapshot, oldPath ))
           hijacked.add( path );
         else
           changed.add( path );

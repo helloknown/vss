@@ -59,6 +59,10 @@ public class DirectoryCommand extends VssCommandAbstract
   public boolean isInProject( String path ) {  return filesInProject.contains( path );  }
   public boolean isCheckedOut( String path ){  return filesCheckedOut.contains( path ); }
 
+  public HashSet<String> getFilesInProject() {  return filesInProject;  }
+
+  public HashSet<String> getFilesCheckedOut() {  return filesCheckedOut;  }
+
   public void execute()
   {
     DirectoryCommandListener listener = new DirectoryCommandListener( myProject, localRootPath,

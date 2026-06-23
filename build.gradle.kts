@@ -47,7 +47,7 @@ intellijPlatform {
         name = "Visual SourceSafe Integration"
         version = project.version.toString()
         ideaVersion {
-            sinceBuild = "242"
+            sinceBuild = "241"
             // No upper bound: compatible with IDEA 2026.1+ until a breaking platform API change occurs.
             untilBuild = provider { null }
         }

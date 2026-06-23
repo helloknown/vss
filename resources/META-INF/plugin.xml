@@ -31,6 +31,7 @@
 
         <projectService serviceImplementation="com.intellij.vssSupport.VssVcs"/>
         <projectService serviceImplementation="com.intellij.vssSupport.occupancy.VssFileOccupancyService"/>
+        <projectService serviceImplementation="com.intellij.vssSupport.occupancy.VssDirectoryStatusCache"/>
 
         <postStartupActivity implementation="com.intellij.vssSupport.Configuration.VssMappingStartupActivity"/>
 

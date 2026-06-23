@@ -19,6 +19,7 @@ import com.intellij.openapi.vcs.changes.ContentRevision;
 import com.intellij.openapi.vcs.changes.VcsDirtyScopeManager;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.ui.EditorNotifications;
+import com.intellij.vssSupport.occupancy.VssDirectoryStatusCache;
 import com.intellij.vssSupport.occupancy.VssFileOccupancyService;
 import com.intellij.vssSupport.occupancy.VssOccupancyStatusBarWidget;
 import com.intellij.util.io.ReadOnlyAttributeUtil;
@@ -335,6 +336,19 @@ public final class VssUtil {
    * and local read-only attribute (unless the user chose to keep the file writable).
    */
   public static void afterUndoCheckout(@NotNull Project project, @NotNull VirtualFile file, boolean keepWritable) {
+    syncLocalStateAfterVssCheckoutChange(project, file, keepWritable);
+  }
+
+  /**
+   * Syncs IDE state after a successful check-in when the file is no longer checked out in VSS.
+   */
+  public static void afterCheckin(@NotNull Project project, @NotNull VirtualFile file, boolean keepCheckedOut) {
+    syncLocalStateAfterVssCheckoutChange(project, file, keepCheckedOut);
+  }
+
+  private static void syncLocalStateAfterVssCheckoutChange(@NotNull Project project,
+                                                           @NotNull VirtualFile file,
+                                                           boolean keepWritable) {
     if (project.isDisposed()) {
       return;
     }
@@ -342,6 +356,7 @@ public final class VssUtil {
     FilePath path = VcsUtil.getFilePath(file);
     VssFileOccupancyService occupancyService = VssFileOccupancyService.getInstance(project);
     occupancyService.invalidate(path);
+    VssDirectoryStatusCache.getInstance(project).invalidateAll();
 
     if (!keepWritable && file.isWritable()) {
       ApplicationManager.getApplication().runWriteAction(() -> {
@@ -375,6 +390,7 @@ public final class VssUtil {
       return;
     }
     VssFileOccupancyService.getInstance(project).invalidateAll();
+    VssDirectoryStatusCache.getInstance(project).invalidateAll();
     dir.refresh(true, true);
     VcsDirtyScopeManager.getInstance(project).fileDirty(dir);
   }

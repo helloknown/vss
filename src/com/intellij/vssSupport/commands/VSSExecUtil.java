@@ -3,6 +3,7 @@ package com.intellij.vssSupport.commands;
 import com.intellij.execution.ExecutionException;
 import com.intellij.execution.configurations.GeneralCommandLine;
 import com.intellij.execution.process.OSProcessHandler;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
@@ -68,6 +69,10 @@ public class VSSExecUtil {
 
   private static void runProcessImpl(@NotNull final Project project, VssOutputCollector listener, GeneralCommandLine cmdLine)
     throws ExecutionException {
+    if (ApplicationManager.getApplication().isDispatchThread()) {
+      LOG.warn("VSS command started on EDT and may freeze the UI: " + cmdLine.getCommandLineString());
+    }
+
     Process process = null;
     VssStreamReader outListener = null;
     VssStreamReader errListener = null;
@@ -115,7 +120,7 @@ public class VSSExecUtil {
         LOG.info("++ Critical error detected: " + reason);
         listener.setExitCode(rc);
         listener.onCommandCriticalFail(reason);
-        listener.everythingFinishedImpl(reason);
+        invokeListenerFinished(listener, reason);
 
         if (process != null && process.isAlive()) {
           process.destroyForcibly();
@@ -125,7 +130,7 @@ public class VSSExecUtil {
         String text = errListener.getReadString() + outListener.getReadString();
 
         listener.setExitCode(rc);
-        listener.everythingFinishedImpl(text);
+        invokeListenerFinished(listener, text);
       }
     }
     finally {
@@ -133,6 +138,14 @@ public class VSSExecUtil {
         process.destroyForcibly();
       }
     }
+  }
+
+  private static void invokeListenerFinished(VssOutputCollector listener, String output) {
+    if (ApplicationManager.getApplication().isDispatchThread()) {
+      listener.everythingFinishedImpl(output);
+      return;
+    }
+    ApplicationManager.getApplication().invokeAndWait(() -> listener.everythingFinishedImpl(output));
   }
 
   private static void joinQuietly(Thread thread) {

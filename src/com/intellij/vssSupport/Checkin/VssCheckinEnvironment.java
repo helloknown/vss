@@ -132,8 +132,8 @@ public class VssCheckinEnvironment implements CheckinEnvironment
 
     if (comment != null) {
       comment = VssCommitMessageUtil.normalize(comment);
-      VssConfiguration.getInstance(project).getCheckinOptions().COMMENT = comment;
     }
+    VssConfiguration.getInstance(project).getCheckinOptions().COMMENT = comment != null ? comment : "";
 
     //  Keep track of the fact that we deal with renamed fodlers. This will
     //  help us to suppress undesirable warning messages of type

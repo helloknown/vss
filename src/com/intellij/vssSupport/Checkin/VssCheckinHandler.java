@@ -1,12 +1,16 @@
 package com.intellij.vssSupport.Checkin;
 
+import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.vcs.CheckinProjectPanel;
+import com.intellij.openapi.vcs.changes.VcsDirtyScopeManager;
 import com.intellij.openapi.vcs.checkin.CheckinHandler;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.vssSupport.VssBundle;
 import com.intellij.vssSupport.VssUtil;
 import com.intellij.vssSupport.VssVcs;
+import com.intellij.vssSupport.occupancy.VssDirectoryStatusCache;
+import com.intellij.vssSupport.occupancy.VssFileOccupancyService;
 
 import java.util.Collection;
 import java.util.HashSet;
@@ -55,5 +59,13 @@ public class VssCheckinHandler extends CheckinHandler {
         return ReturnResult.CANCEL;
     }
     return ReturnResult.COMMIT;
+  }
+
+  @Override
+  public void checkinSuccessful() {
+    Project project = panel.getProject();
+    VssFileOccupancyService.getInstance(project).invalidateAll();
+    VssDirectoryStatusCache.getInstance(project).invalidateAll();
+    VcsDirtyScopeManager.getInstance(project).markEverythingDirty();
   }
 }

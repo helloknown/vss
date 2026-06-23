@@ -2,8 +2,7 @@ package com.intellij.vssSupport.Configuration;
 
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.startup.StartupActivity;
-import com.intellij.util.messages.MessageBusConnection;
-import com.intellij.vssSupport.VssEmptyCommitMessageSupport;
+import com.intellij.openapi.vcs.changes.VcsDirtyScopeManager;
 import com.intellij.vssSupport.VssVcs;
 
 /**
@@ -17,7 +16,6 @@ public final class VssMappingStartupActivity implements StartupActivity.DumbAwar
     }
     VssMappingStorage.ensureMappingsReady(project);
 
-    MessageBusConnection connection = project.getMessageBus().connect();
-    new VssEmptyCommitMessageSupport(project).install(connection);
+    VcsDirtyScopeManager.getInstance(project).markEverythingDirty();
   }
 }
