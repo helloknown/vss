@@ -27,7 +27,6 @@ import com.intellij.openapi.vcs.history.*;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.ui.ColumnInfo;
-import com.intellij.util.ui.JBUI;
 import com.intellij.vcsUtil.VcsUtil;
 import com.intellij.vssSupport.commands.GetFileCommand;
 import com.intellij.vssSupport.commands.HistoryCommand;
@@ -48,20 +47,15 @@ import java.util.List;
 
 public class VssFileHistoryProvider implements VcsHistoryProvider
 {
-  @NonNls private final static String DATE_COLUMN = "Date";
-  @NonNls private final static String ACTION_COLUMN = "Action";
-  @NonNls private final static String LABEL_COLUMN = "Label";
-
-  @NonNls private static final String DATE_WIDTH_SAMPLE = "26/06/09 12:45p";
-  @NonNls private static final String ACTION_WIDTH_SAMPLE = "Checked in";
-  @NonNls private static final String LABEL_WIDTH_SAMPLE = "Release_1.0";
+  @NonNls private static final String DATE_COLUMN = "Date";
+  @NonNls private static final String ACTION_COLUMN = "Action";
+  @NonNls private static final String LABEL_COLUMN = "Label";
 
   private static final Logger LOG = Logger.getInstance("#com.intellij.vssSupport.VssFileHistoryProvider");
 
   private final Project project;
 
-  private static final ColumnInfo<VcsFileRevision, String> DATE = new WidthHintColumn(DATE_COLUMN, DATE_WIDTH_SAMPLE)
-  {
+  private static final ColumnInfo<VcsFileRevision, String> DATE = new ColumnInfo<>(DATE_COLUMN) {
     @Override
     public String valueOf(VcsFileRevision vcsFileRevision) {
       if (!(vcsFileRevision instanceof VssFileRevision)) return "";
@@ -78,8 +72,7 @@ public class VssFileHistoryProvider implements VcsHistoryProvider
     }
   };
 
-  private static final ColumnInfo<VcsFileRevision, String> ACTION = new WidthHintColumn(ACTION_COLUMN, ACTION_WIDTH_SAMPLE)
-  {
+  private static final ColumnInfo<VcsFileRevision, String> ACTION = new ColumnInfo<>(ACTION_COLUMN) {
     @Override
     public String valueOf(VcsFileRevision vcsFileRevision) {
       if (!(vcsFileRevision instanceof VssFileRevision)) return "";
@@ -87,38 +80,13 @@ public class VssFileHistoryProvider implements VcsHistoryProvider
     }
   };
 
-  private static final ColumnInfo<VcsFileRevision, String> LABEL = new WidthHintColumn(LABEL_COLUMN, LABEL_WIDTH_SAMPLE)
-  {
+  private static final ColumnInfo<VcsFileRevision, String> LABEL = new ColumnInfo<>(LABEL_COLUMN) {
     @Override
     public String valueOf(VcsFileRevision vcsFileRevision) {
       if (!(vcsFileRevision instanceof VssFileRevision)) return "";
       return ((VssFileRevision) vcsFileRevision).getLabel();
     }
   };
-
-  private abstract static class WidthHintColumn extends ColumnInfo<VcsFileRevision, String> {
-    private final String widthSample;
-
-    WidthHintColumn(@NonNls String name, @NonNls String widthSample) {
-      super(name);
-      this.widthSample = widthSample;
-    }
-
-    @Override
-    public @Nullable String getPreferredStringValue() {
-      return widthSample;
-    }
-
-    @Override
-    public @Nullable String getMaxStringValue() {
-      return widthSample;
-    }
-
-    @Override
-    public int getAdditionalWidth() {
-      return JBUI.scale(16);
-    }
-  }
 
   public VssFileHistoryProvider( Project project )
   {

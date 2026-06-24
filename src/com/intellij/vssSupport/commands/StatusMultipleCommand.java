@@ -25,15 +25,20 @@ public class StatusMultipleCommand extends VssCommandAbstract
   private static final int  CMDLINE_MAX_LENGTH = 500;
 
   private final List<String> files;
+  private final boolean currentUserOnly;
 
   private HashSet<String> deletedFiles;
   private HashSet<String> nonexistingFiles;
   private HashSet<String> checkoutFiles;
 
-  public StatusMultipleCommand( @NotNull Project project, List<String> paths )
-  {
-    super( project );
+  public StatusMultipleCommand(@NotNull Project project, List<String> paths) {
+    this(project, paths, true);
+  }
+
+  public StatusMultipleCommand(@NotNull Project project, List<String> paths, boolean currentUserOnly) {
+    super(project);
     files = paths;
+    this.currentUserOnly = currentUserOnly;
   }
 
   public void execute()
@@ -49,7 +54,7 @@ public class StatusMultipleCommand extends VssCommandAbstract
     LinkedList<String> options = new LinkedList<>();
     while( currIndex < files.size() )
     {
-      cmdLineLen = STATUS_COMMAND.length() + CURRENT_USER_OPTION.length();
+      cmdLineLen = STATUS_COMMAND.length() + (currentUserOnly ? CURRENT_USER_OPTION.length() : 0);
 
       options.clear();
       options.add( STATUS_COMMAND );
@@ -58,13 +63,24 @@ public class StatusMultipleCommand extends VssCommandAbstract
         options.add( myConfig.getYOption() );
         cmdLineLen += myConfig.getYOption().length();
       }
-      options.add( CURRENT_USER_OPTION );
+      if (currentUserOnly) {
+        options.add( CURRENT_USER_OPTION );
+      }
       
       while( currIndex < files.size() && cmdLineLen < CMDLINE_MAX_LENGTH )
       {
-        String vssPath = VssUtil.getVssPath( files.get( currIndex++ ), false, myProject );
-        options.add( vssPath );
+        String localPath = files.get(currIndex);
+        String vssPath = VssUtil.getVssPath(localPath, false, myProject);
+        currIndex++;
+        if (vssPath == null || vssPath.isEmpty()) {
+          continue;
+        }
+        options.add(vssPath);
         cmdLineLen += vssPath.length() + 1;
+      }
+
+      if (options.size() <= 2) {
+        continue;
       }
       
       runProcess( options, null, listener );

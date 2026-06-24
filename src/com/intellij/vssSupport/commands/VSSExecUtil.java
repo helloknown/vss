@@ -5,6 +5,7 @@ import com.intellij.execution.configurations.GeneralCommandLine;
 import com.intellij.execution.process.OSProcessHandler;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
@@ -13,8 +14,8 @@ import com.intellij.vssSupport.VssBundle;
 import com.intellij.vssSupport.VssOutputCollector;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
-import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -39,10 +40,10 @@ public class VSSExecUtil {
     void doInput(java.io.Writer writer);
   }
 
-  public synchronized static void runProcess(@NotNull Project project,
-                                             String exePath, List<String> paremeters,
-                                             HashMap<String, String> envParams, String workingDir,
-                                             VssOutputCollector listener) throws ExecutionException {
+  public static void runProcess(@NotNull Project project,
+                                String exePath, List<String> paremeters,
+                                HashMap<String, String> envParams, String workingDir,
+                                VssOutputCollector listener) throws ExecutionException {
     String[] programParams = ArrayUtil.toStringArray(paremeters);
     addVSS2005Values(envParams);
 
@@ -89,17 +90,16 @@ public class VSSExecUtil {
         outThread.start();
         errThread.start();
 
-        boolean completed = process.waitFor(TIMEOUT_LIMIT, TimeUnit.SECONDS);
-        if (!completed) {
-          rc = TIMEOUT_EXIT_CODE;
-          process.destroyForcibly();
-        }
-        else {
-          rc = process.exitValue();
-        }
+        rc = waitForProcess(process, ProgressManager.getInstance().getProgressIndicator());
 
         joinQuietly(outThread);
         joinQuietly(errThread);
+      }
+      catch (ProcessCanceledException e) {
+        if (process != null && process.isAlive()) {
+          process.destroyForcibly();
+        }
+        throw e;
       }
       catch (ExecutionException e) {
         listener.onCommandCriticalFail(e.getMessage());
@@ -140,12 +140,30 @@ public class VSSExecUtil {
     }
   }
 
+  private static int waitForProcess(@NotNull Process process, @Nullable ProgressIndicator progress)
+    throws InterruptedException {
+    long deadlineMs = System.currentTimeMillis() + TimeUnit.SECONDS.toMillis(TIMEOUT_LIMIT);
+    while (process.isAlive()) {
+      if (progress != null && progress.isCanceled()) {
+        process.destroyForcibly();
+        throw new ProcessCanceledException();
+      }
+      if (System.currentTimeMillis() >= deadlineMs) {
+        process.destroyForcibly();
+        return TIMEOUT_EXIT_CODE;
+      }
+      Thread.sleep(200L);
+    }
+    return process.exitValue();
+  }
+
   private static void invokeListenerFinished(VssOutputCollector listener, String output) {
     if (ApplicationManager.getApplication().isDispatchThread()) {
       listener.everythingFinishedImpl(output);
       return;
     }
-    ApplicationManager.getApplication().invokeAndWait(() -> listener.everythingFinishedImpl(output));
+    // Parse on the worker thread; do not invokeAndWait on EDT during indexing (causes UI freeze).
+    listener.everythingFinishedImpl(output);
   }
 
   private static void joinQuietly(Thread thread) {

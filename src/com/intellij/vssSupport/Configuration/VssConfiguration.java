@@ -42,6 +42,7 @@ public final class VssConfiguration implements PersistentStateComponent<Element>
   public String CLIENT_PATH = "";
   public String SRCSAFEINI_PATH = "";
   public String USER_NAME = "";
+  public String OUTPUT_CHARSET = "";
   public String PWD = "";
   public ArrayList myMapItems;
 

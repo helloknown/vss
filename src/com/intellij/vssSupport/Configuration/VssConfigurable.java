@@ -7,9 +7,11 @@ import com.intellij.openapi.ui.TextBrowseFolderListener;
 import com.intellij.openapi.ui.TextFieldWithBrowseButton;
 import com.intellij.openapi.util.NlsContexts;
 import com.intellij.ui.IdeBorderFactory;
+import com.intellij.ui.components.JBTextField;
 import com.intellij.util.ui.FormBuilder;
 import com.intellij.util.ui.JBUI;
 import com.intellij.vssSupport.VssBundle;
+import com.intellij.vssSupport.VssEncodingUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.Nullable;
 
@@ -29,6 +31,7 @@ public class VssConfigurable implements Configurable {
   private TextFieldWithBrowseButton myClientPath;
   private TextFieldWithBrowseButton mySrcsafeIni;
   private JTextField myTextFieldUserName;
+  private JTextField myOutputCharset;
   private JPasswordField myPasswordField;
   private VssDirectoryMappingsPanel myMappingsPanel;
 
@@ -63,6 +66,7 @@ public class VssConfigurable implements Configurable {
     myClientPath = VssFormUi.createCompactBrowseField(VssFormUi.SETTINGS_FIELD_WIDTH);
     mySrcsafeIni = VssFormUi.createCompactBrowseField(VssFormUi.SETTINGS_FIELD_WIDTH);
     myTextFieldUserName = VssFormUi.createCompactTextField(VssFormUi.SETTINGS_FIELD_WIDTH);
+    myOutputCharset = VssFormUi.createCompactTextField(VssFormUi.SETTINGS_FIELD_WIDTH);
     myPasswordField = VssFormUi.createCompactPasswordField(VssFormUi.SETTINGS_FIELD_WIDTH);
     myMappingsPanel = new VssDirectoryMappingsPanel(myProject);
     VssFormUi.allowHorizontalResize(myMappingsPanel);
@@ -87,7 +91,10 @@ public class VssConfigurable implements Configurable {
       .addLabeledComponent(VssBundle.message("label.configuration.path.to.ini"), mySrcsafeIni)
       .addLabeledComponent(VssBundle.message("label.configuration.user.name"), myTextFieldUserName)
       .addLabeledComponent(VssBundle.message("label.configuration.password"), myPasswordField)
+      .addLabeledComponent(VssBundle.message("label.configuration.output.charset"), myOutputCharset)
       .addComponent(mappingsWrapper)
+      .addComponent(VssFormUi.createWrappingComment(
+        VssBundle.message("message.configuration.output.charset.hint"), VssFormUi.COMMENT_WRAP_WIDTH))
       .addComponent(VssFormUi.createWrappingComment(
         "Please check out particular restrictions for VSS repository in our Help!", VssFormUi.COMMENT_WRAP_WIDTH))
       .addComponentFillVertically(new JPanel(), 0)
@@ -95,6 +102,15 @@ public class VssConfigurable implements Configurable {
 
     myPanel = VssFormUi.boundedPanel(formPanel, VssFormUi.SETTINGS_MAX_WIDTH);
     myPanel.setBorder(JBUI.Borders.empty(5));
+    updateOutputCharsetPlaceholder();
+  }
+
+  private void updateOutputCharsetPlaceholder() {
+    if (!(myOutputCharset instanceof JBTextField field)) {
+      return;
+    }
+    field.getEmptyText().setText(
+      VssBundle.message("label.configuration.output.charset.default", VssEncodingUtil.getDefaultCharsetName()));
   }
 
   private void setupBrowseButton(TextFieldWithBrowseButton field, String fileName, String description) {
@@ -115,6 +131,7 @@ public class VssConfigurable implements Configurable {
     return !myClientPath.getText().replace('/', File.separatorChar).equals(myConfig.CLIENT_PATH)
            || !mySrcsafeIni.getText().replace('/', File.separatorChar).equals(myConfig.SRCSAFEINI_PATH)
            || !myTextFieldUserName.getText().trim().equals(myConfig.USER_NAME)
+           || !myOutputCharset.getText().trim().equals(myConfig.OUTPUT_CHARSET)
            || !(new String(myPasswordField.getPassword())).equals(myConfig.getPassword())
            || myMappingsPanel.isModified();
   }
@@ -127,6 +144,7 @@ public class VssConfigurable implements Configurable {
     myConfig.CLIENT_PATH = myClientPath.getText().replace('/', File.separatorChar);
     myConfig.SRCSAFEINI_PATH = mySrcsafeIni.getText().replace('/', File.separatorChar);
     myConfig.USER_NAME = myTextFieldUserName.getText().trim();
+    myConfig.OUTPUT_CHARSET = myOutputCharset.getText().trim();
     myConfig.setPassword(new String(myPasswordField.getPassword()));
     myMappingsPanel.apply();
     VssMappingStorage.enrichDirectoryMappings(myProject);
@@ -141,6 +159,8 @@ public class VssConfigurable implements Configurable {
     mySrcsafeIni.setText(myConfig.SRCSAFEINI_PATH);
     myTextFieldUserName.setText(myConfig.USER_NAME);
     myPasswordField.setText(myConfig.getPassword());
+    myOutputCharset.setText(myConfig.OUTPUT_CHARSET);
+    updateOutputCharsetPlaceholder();
     myMappingsPanel.reset();
   }
 
@@ -154,6 +174,7 @@ public class VssConfigurable implements Configurable {
     myClientPath = null;
     mySrcsafeIni = null;
     myTextFieldUserName = null;
+    myOutputCharset = null;
     myPasswordField = null;
     myMappingsPanel = null;
   }

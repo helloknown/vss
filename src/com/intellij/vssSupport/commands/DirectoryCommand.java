@@ -21,6 +21,7 @@ import com.intellij.openapi.vcs.ProjectLevelVcsManager;
 import com.intellij.openapi.vcs.VcsException;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.vcsUtil.VcsUtil;
+import com.intellij.vssSupport.VssBundle;
 import com.intellij.vssSupport.VssUtil;
 import org.jetbrains.annotations.NonNls;
 
@@ -65,6 +66,10 @@ public class DirectoryCommand extends VssCommandAbstract
 
   public void execute()
   {
+    if (vssProjectPath == null || vssProjectPath.isEmpty()) {
+      myErrors.add(new VcsException(VssBundle.message("message.text.configuration.invalid.project")));
+      return;
+    }
     DirectoryCommandListener listener = new DirectoryCommandListener( myProject, localRootPath,
                                                                       filesInProject, filesCheckedOut, myErrors );
     List<String> options = formOptions( DIR_COMMAND, RECURSIVE_OPTION, EXTENDED_FORMAT_OPTION, vssProjectPath );

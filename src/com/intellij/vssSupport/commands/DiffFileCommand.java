@@ -6,6 +6,7 @@ import com.intellij.diff.DiffManager;
 import com.intellij.diff.contents.DiffContent;
 import com.intellij.diff.requests.DiffRequest;
 import com.intellij.diff.requests.SimpleDiffRequest;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.io.FileUtil;
@@ -16,6 +17,7 @@ import com.intellij.vssSupport.VssBundle;
 import com.intellij.vssSupport.VssOutputCollector;
 import com.intellij.vssSupport.VssUtil;
 import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
 import java.io.IOException;
@@ -97,30 +99,75 @@ public class DiffFileCommand extends VssCommandAbstract
           VssUtil.showErrorOutput(output, myProject);
           return;
         }
-        try
-        {
-          String title = VssBundle.message("dialog.title.diff.for.file", myFile.getPresentableUrl());
+        showDiffOnEdt();
+      }
+    }
 
-          String title1 = VssBundle.message("diff.content.title.repository");
-          String title2 = VssBundle.message("diff.content.title.local");
-
-          final LocalFileSystem lfs = LocalFileSystem.getInstance();
-          VirtualFile tmpFile = lfs.findFileByIoFile(myTmpFile);
-          if (tmpFile == null) {
-            tmpFile = lfs.refreshAndFindFileByIoFile(myTmpFile);
-          }
-          if (tmpFile == null) throw new IOException("File not found" + tmpFile);
-
-          DiffContent vssContent = DiffContentFactory.getInstance().create(myProject, tmpFile);
-          DiffContent currentContent = DiffContentFactory.getInstance().create(myProject, myFile);
-
-          DiffRequest request = new SimpleDiffRequest(title, vssContent, currentContent, title1, title2);
-          DiffManager.getInstance().showDiff(myProject, request, DiffDialogHints.FRAME);
+    private void showDiffOnEdt() {
+      Runnable show = () -> {
+        try {
+          openDiffViewer();
         }
         catch (IOException e) {
-          myErrors.add( new VcsException(e.getLocalizedMessage()) );
+          myErrors.add(new VcsException(e.getLocalizedMessage()));
+        }
+      };
+      if (ApplicationManager.getApplication().isDispatchThread()) {
+        show.run();
+      }
+      else {
+        ApplicationManager.getApplication().invokeAndWait(show);
+      }
+    }
+
+    private void openDiffViewer() throws IOException {
+      String title = VssBundle.message("dialog.title.diff.for.file", myFile.getPresentableUrl());
+
+      String title1 = VssBundle.message("diff.content.title.repository");
+      String title2 = VssBundle.message("diff.content.title.local");
+
+      final LocalFileSystem lfs = LocalFileSystem.getInstance();
+      VirtualFile tmpFile = findRepositoryCopy(lfs);
+      if (tmpFile == null) {
+        throw new IOException("Repository copy not found for " + myFile.getName());
+      }
+
+      DiffContent vssContent = DiffContentFactory.getInstance().create(myProject, tmpFile);
+      DiffContent currentContent = DiffContentFactory.getInstance().create(myProject, myFile);
+
+      DiffRequest request = new SimpleDiffRequest(title, vssContent, currentContent, title1, title2);
+      DiffManager.getInstance().showDiff(myProject, request, DiffDialogHints.FRAME);
+    }
+
+    private VirtualFile findRepositoryCopy(@NotNull LocalFileSystem lfs) {
+      VirtualFile tmpFile = lfs.findFileByIoFile(myTmpFile);
+      if (tmpFile == null) {
+        tmpFile = lfs.refreshAndFindFileByIoFile(myTmpFile);
+      }
+      if (tmpFile != null) {
+        return tmpFile;
+      }
+      File parent = myTmpFile.getParentFile();
+      if (parent == null || !parent.isDirectory()) {
+        return null;
+      }
+      File[] siblings = parent.listFiles();
+      if (siblings == null) {
+        return null;
+      }
+      String expectedPrefix = myFile.getName().toLowerCase();
+      for (File sibling : siblings) {
+        if (sibling.isFile() && sibling.getName().toLowerCase().startsWith(expectedPrefix.substring(0, Math.min(3, expectedPrefix.length())))) {
+          VirtualFile candidate = lfs.refreshAndFindFileByIoFile(sibling);
+          if (candidate != null) {
+            return candidate;
+          }
         }
       }
+      if (siblings.length == 1 && siblings[0].isFile()) {
+        return lfs.refreshAndFindFileByIoFile(siblings[0]);
+      }
+      return null;
     }
   }
 }

@@ -55,7 +55,7 @@ public class CheckinFileCommand extends VssCommandAbstract
     @NonNls private static final String DELETED_MESSAGE = "has been deleted";
     @NonNls private static final String ALREADY_CHECKED_OUT_MESSAGE = "is already checked out, continue?";
     @NonNls private static final String NOT_EXISTING_MESSAGE = "is not an existing";
-    @NonNls private static final String CHECKED_OUT_MESSAGE = "currently checked out";
+    @NonNls private static final String NOT_CURRENTLY_CHECKED_OUT_MESSAGE = "do not have";
 
     @NonNls private static final String PROPERLY_MERGED_QUESTION = "properly merged?";
     @NonNls private static final String NO_CONFLICTS_MESSAGE = "with no conflicts";
@@ -67,10 +67,16 @@ public class CheckinFileCommand extends VssCommandAbstract
     {
       int  exitCode = getExitCode();
 
+      if( isNotCurrentlyCheckedOutMessage(output) )
+      {
+        VssUtil.syncStaleCheckoutState(myProject, myFile);
+        addWarning(output);
+      }
+      else
       if( isNotExistingMessage(output) || isConflictsMessage(output) ||
           isNoConflictMessage(output) || isHasBeenDeletedMessage(output) ||
           ( isNotFromCurrentFolderMessage(output) && !suppressWarnOnOtherFolder ) ||
-          isNotCurrentlyCheckedOutMessage(output) || isAlreadyCheckedOutMessage(output) )
+          isAlreadyCheckedOutMessage(output) )
       {
         addWarning(output);
       }
@@ -119,7 +125,8 @@ public class CheckinFileCommand extends VssCommandAbstract
     }
 
     private boolean isNotCurrentlyCheckedOutMessage(String errorOutput) {
-      return errorOutput.indexOf(CHECKED_OUT_MESSAGE) != -1;
+      String lower = errorOutput.toLowerCase();
+      return lower.contains(NOT_CURRENTLY_CHECKED_OUT_MESSAGE) && lower.contains("currently checked");
     }
 
     private boolean isProperlyMergedRequest(String errorOutput) {

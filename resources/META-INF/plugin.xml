@@ -32,21 +32,35 @@
         <projectService serviceImplementation="com.intellij.vssSupport.VssVcs"/>
         <projectService serviceImplementation="com.intellij.vssSupport.occupancy.VssFileOccupancyService"/>
         <projectService serviceImplementation="com.intellij.vssSupport.occupancy.VssDirectoryStatusCache"/>
+        <projectService serviceImplementation="com.intellij.vssSupport.checkouts.VssMyCheckoutsService"/>
 
         <postStartupActivity implementation="com.intellij.vssSupport.Configuration.VssMappingStartupActivity"/>
+
+        <toolWindow id="VSS Search for Status"
+                    anchor="bottom"
+                    icon="/icons/vssSearchForStatus.svg"
+                    factoryClass="com.intellij.vssSupport.checkouts.VssMyCheckoutsToolWindowFactory"
+                    canCloseContents="false"/>
 
         <statusBarWidgetFactory id="VssOccupancyStatus"
                                 implementation="com.intellij.vssSupport.occupancy.VssOccupancyStatusBarWidget$Factory"/>
         <editorNotificationProvider implementation="com.intellij.vssSupport.occupancy.VssOccupancyEditorNotifier"/>
+
+        <notificationGroup id="VSS" displayType="BALLOON" isLogByDefault="true"/>
+        <projectService serviceImplementation="com.intellij.vssSupport.VssScanErrorReporter"/>
     </extensions>
 
     <actions>
-        <group id="VssGlobalGroup" class="com.intellij.vssSupport.actions.VssGroup" popup="true" >
+        <group id="VssGlobalGroup" class="com.intellij.vssSupport.actions.VssGroup" popup="true"
+                icon="/icons/vssLogo.svg">
             <add-to-group group-id="VcsGroups" anchor="last"/>
             <action id="Vss.RunExplorer" class="com.intellij.vssSupport.actions.RunExplorerAction"/>
+            <action id="Vss.ShowMyCheckouts" class="com.intellij.vssSupport.actions.ShowMyCheckoutsAction"
+                    icon="/icons/vssSearchForStatus.svg"/>
         </group>
 
-        <group id="VssFilePopupGroup" class="com.intellij.vssSupport.actions.VssGroup" popup="true" >
+        <group id="VssFilePopupGroup" class="com.intellij.vssSupport.actions.VssGroup" popup="true"
+                icon="/icons/vssLogo.svg">
             <add-to-group group-id="VcsGroup" anchor="last"/>
         </group>
 
@@ -57,10 +71,12 @@
             <action id="Vss.Get" class="com.intellij.vssSupport.actions.GetAction"/>
             <action id="Vss.Checkout" class="com.intellij.vssSupport.actions.CheckoutAction"/>
             <action id="Vss.Undocheckout" class="com.intellij.vssSupport.actions.UndocheckoutAction"/>
-            <reference id="CheckinFiles"/>
+            <action id="Vss.DirectCheckin" class="com.intellij.vssSupport.actions.VssDirectCheckinAction"/>
             <action id="Vss.Add" class="com.intellij.vssSupport.actions.AddAction"/>
             <action id="Vss.Label" class="com.intellij.vssSupport.actions.LabelAction"/>
             <action id="Vss.Properties" class="com.intellij.vssSupport.actions.PropertiesAction"/>
+            <action id="Vss.SearchForStatusInFolder" class="com.intellij.vssSupport.actions.SearchForStatusInFolderAction"
+                    icon="/icons/vssSearchForStatus.svg"/>
             <separator/>
             <reference id="Vcs.ShowTabbedFileHistory"/>
             <action id="Vss.Diff" class="com.intellij.vssSupport.actions.DiffAction"/>

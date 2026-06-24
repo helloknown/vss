@@ -2,6 +2,7 @@ package com.intellij.vssSupport;
 
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
+import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
@@ -18,7 +19,9 @@ import com.intellij.openapi.vcs.changes.Change;
 import com.intellij.openapi.vcs.changes.ContentRevision;
 import com.intellij.openapi.vcs.changes.VcsDirtyScopeManager;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.ui.EditorNotifications;
+import com.intellij.vssSupport.checkouts.VssMyCheckoutsService;
 import com.intellij.vssSupport.occupancy.VssDirectoryStatusCache;
 import com.intellij.vssSupport.occupancy.VssFileOccupancyService;
 import com.intellij.vssSupport.occupancy.VssOccupancyStatusBarWidget;
@@ -290,7 +293,24 @@ public final class VssUtil {
 
   public static VirtualFile[] getVirtualFiles(AnActionEvent e) {
     VirtualFile[] files = e.getData(CommonDataKeys.VIRTUAL_FILE_ARRAY);
-    return files == null ? VirtualFile.EMPTY_ARRAY : files;
+    if (files != null && files.length > 0) {
+      return files;
+    }
+    VirtualFile file = e.getData(CommonDataKeys.VIRTUAL_FILE);
+    return file == null ? VirtualFile.EMPTY_ARRAY : new VirtualFile[]{file};
+  }
+
+  public static boolean isFolderUnderVss(@NotNull Project project, @NotNull VssVcs vcs, @NotNull VirtualFile folder) {
+    ProjectLevelVcsManager mgr = ProjectLevelVcsManager.getInstance(project);
+    if (mgr.getVcsFor(folder) == vcs) {
+      return true;
+    }
+    for (VirtualFile root : mgr.getRootsUnderVcs(vcs)) {
+      if (root.equals(folder) || VfsUtilCore.isAncestor(root, folder, false)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   @Nullable
@@ -320,7 +340,7 @@ public final class VssUtil {
     if (file.isWritable()) {
       return;
     }
-    ApplicationManager.getApplication().runWriteAction(() -> {
+    runWriteActionOnEdt(() -> {
       try {
         ReadOnlyAttributeUtil.setReadOnlyAttribute(file, false);
       }
@@ -328,7 +348,7 @@ public final class VssUtil {
         // Best effort; EditFileProvider shows a dialog when this path is user-initiated.
       }
     });
-    file.refresh(false, false);
+    refreshFileOnEdt(file, false);
   }
 
   /**
@@ -346,6 +366,14 @@ public final class VssUtil {
     syncLocalStateAfterVssCheckoutChange(project, file, keepCheckedOut);
   }
 
+  /**
+   * Re-syncs IDE VCS presentation when VSS reports the file is not checked out
+   * (stale modified/writable state in the project tree).
+   */
+  public static void syncStaleCheckoutState(@NotNull Project project, @NotNull VirtualFile file) {
+    afterUndoCheckout(project, file, false);
+  }
+
   private static void syncLocalStateAfterVssCheckoutChange(@NotNull Project project,
                                                            @NotNull VirtualFile file,
                                                            boolean keepWritable) {
@@ -358,23 +386,22 @@ public final class VssUtil {
     occupancyService.invalidate(path);
     VssDirectoryStatusCache.getInstance(project).invalidateAll();
 
-    if (!keepWritable && file.isWritable()) {
-      ApplicationManager.getApplication().runWriteAction(() -> {
-        try {
-          ReadOnlyAttributeUtil.setReadOnlyAttribute(file, true);
-        }
-        catch (IOException ignored) {
-        }
-      });
-    }
-
-    file.refresh(true, false);
-    VcsDirtyScopeManager.getInstance(project).fileDirty(file);
-
     ApplicationManager.getApplication().invokeLater(() -> {
       if (project.isDisposed()) {
         return;
       }
+      if (!keepWritable && file.isWritable()) {
+        ApplicationManager.getApplication().runWriteAction(() -> {
+          try {
+            ReadOnlyAttributeUtil.setReadOnlyAttribute(file, true);
+          }
+          catch (IOException ignored) {
+          }
+        });
+      }
+      file.refresh(true, false);
+      VcsDirtyScopeManager.getInstance(project).fileDirty(file);
+
       occupancyService.queryAsync(path, () -> {
         EditorNotifications.getInstance(project).updateNotifications(file);
         VirtualFile[] selected = FileEditorManager.getInstance(project).getSelectedFiles();
@@ -391,15 +418,20 @@ public final class VssUtil {
     }
     VssFileOccupancyService.getInstance(project).invalidateAll();
     VssDirectoryStatusCache.getInstance(project).invalidateAll();
-    dir.refresh(true, true);
-    VcsDirtyScopeManager.getInstance(project).fileDirty(dir);
+    ApplicationManager.getApplication().invokeLater(() -> {
+      if (project.isDisposed()) {
+        return;
+      }
+      dir.refresh(true, true);
+      VcsDirtyScopeManager.getInstance(project).fileDirty(dir);
+    });
   }
 
   public static void ensureLocallyWritableOrShowError(Project project, VirtualFile file) {
     if (file.isWritable()) {
       return;
     }
-    ApplicationManager.getApplication().runWriteAction(() -> {
+    runWriteActionOnEdt(() -> {
       try {
         ReadOnlyAttributeUtil.setReadOnlyAttribute(file, false);
       }
@@ -409,7 +441,28 @@ public final class VssUtil {
                                  VssBundle.message("message.title.error"));
       }
     });
-    file.refresh(false, false);
+    refreshFileOnEdt(file, false);
+  }
+
+  private static void runWriteActionOnEdt(@NotNull Runnable action) {
+    Application app = ApplicationManager.getApplication();
+    if (app.isDispatchThread()) {
+      app.runWriteAction(action);
+    }
+    else {
+      app.invokeAndWait(() -> app.runWriteAction(action));
+    }
+  }
+
+  private static void refreshFileOnEdt(@NotNull VirtualFile file, boolean recursive) {
+    Application app = ApplicationManager.getApplication();
+    Runnable refresh = () -> file.refresh(recursive, false);
+    if (app.isDispatchThread()) {
+      refresh.run();
+    }
+    else {
+      app.invokeLater(refresh);
+    }
   }
 
   public static String getCanonicalLocalPath(String localPath) {

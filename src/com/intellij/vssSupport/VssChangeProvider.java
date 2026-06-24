@@ -3,6 +3,7 @@ package com.intellij.vssSupport;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProgressIndicator;
+import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
@@ -17,6 +18,7 @@ import com.intellij.vssSupport.occupancy.VssDirectoryStatusCache;
 import com.intellij.vssSupport.commands.PropertiesCommand;
 import com.intellij.vssSupport.commands.StatusMultipleCommand;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -59,21 +61,24 @@ public class VssChangeProvider implements ChangeProvider
   public void getChanges(@NotNull final VcsDirtyScope dirtyScope, @NotNull final ChangelistBuilder builder, @NotNull final ProgressIndicator indicator,
                          @NotNull final ChangeListManagerGate addGate)
   {
-    //-------------------------------------------------------------------------
-    //  Protect ourselves from the calls which come during the unsafe project
-    //  phases like unload or reload.
-    //-------------------------------------------------------------------------
     if( project.isDisposed() )
       return;
 
     if (ApplicationManager.getApplication().isDispatchThread()) {
-      LOG.warn("VSS change scan invoked on EDT; deferring to background to avoid UI freeze");
-      ApplicationManager.getApplication().executeOnPooledThread(() ->
-        VcsDirtyScopeManager.getInstance(project).markEverythingDirty());
+      ProgressManager.getInstance().runProcessWithProgressSynchronously(
+        () -> performGetChanges(dirtyScope, builder, indicator, addGate),
+        VssBundle.message("progress.title.vss.changes"),
+        true,
+        project
+      );
       return;
     }
+    performGetChanges(dirtyScope, builder, indicator, addGate);
+  }
 
-    //validateChangesOverTheHost( dirtyScope );
+  private void performGetChanges(@NotNull final VcsDirtyScope dirtyScope, @NotNull final ChangelistBuilder builder, @NotNull final ProgressIndicator indicator,
+                                 @NotNull final ChangeListManagerGate addGate)
+  {
     logChangesContent( dirtyScope );
 
     isBatchUpdate = isBatchUpdate( dirtyScope );
@@ -90,6 +95,7 @@ public class VssChangeProvider implements ChangeProvider
       return;
 
     initInternals();
+    VssScanErrorReporter.getInstance(project).beginChangeScan();
 
     iterateOverRecursiveFolders( dirtyScope );
     iterateOverDirtyDirectories( dirtyScope );
@@ -228,6 +234,49 @@ public class VssChangeProvider implements ChangeProvider
       progress.checkCanceled();
     }
     analyzeWritableFiles( path, writableFiles );
+    mergeCheckedOutFilesFromDirectory( path );
+  }
+
+  /**
+   * Adds VSS-checked-out files even when the local VFS still reports them as read-only
+   * (common after checkout from SourceSafe Explorer or before the first VCS refresh).
+   */
+  private void mergeCheckedOutFilesFromDirectory(@NotNull FilePath filePath) {
+    ArrayList<VcsException> errors = new ArrayList<>();
+    VssDirectoryStatusCache cache = VssDirectoryStatusCache.getInstance(project);
+    VssDirectoryStatusCache.Snapshot snapshot = cache.getOrQuery(project, filePath.getPath(), errors);
+    if (snapshot == null || !errors.isEmpty()) {
+      return;
+    }
+
+    for (String checkedOutPath : snapshot.filesCheckedOut()) {
+      if (progress != null) {
+        progress.checkCanceled();
+      }
+      VirtualFile file = resolveVersionedFile(checkedOutPath, snapshot);
+      if (file == null || file.isDirectory() || host.isFileIgnored(file)) {
+        continue;
+      }
+      if (isParentFolderNewOrUnversioned(file)) {
+        continue;
+      }
+      filesChanged.add(VssUtil.getCanonicalLocalPath(file.getPath()));
+    }
+  }
+
+  @Nullable
+  private VirtualFile resolveVersionedFile(@NotNull String normalizedPath,
+                                           @NotNull VssDirectoryStatusCache.Snapshot snapshot) {
+    VirtualFile file = VssUtil.getVirtualFile(normalizedPath);
+    if (file != null) {
+      return file;
+    }
+    for (String projectPath : snapshot.filesInProject()) {
+      if (projectPath.equalsIgnoreCase(normalizedPath)) {
+        return VssUtil.getVirtualFile(projectPath);
+      }
+    }
+    return null;
   }
 
   private void collectSuspiciousFiles( final FilePath filePath, final List<String> writableFiles )
@@ -311,8 +360,9 @@ public class VssChangeProvider implements ChangeProvider
       //  processed on the "by line" basis (and per file correspondingly).
       if( cmd.getErrors().size() > 0 )
       {
-        VcsImplUtil.showErrorMessage(project, cmd.getErrors().get(0).getMessage(),
-                                     VssBundle.message("message.title.check.status"));
+        String errorMessage = cmd.getErrors().get(0).getMessage();
+        VssScanErrorReporter.getInstance(project).reportChangeScanError(errorMessage);
+        classifyWritableFilesWithoutVssStatus(files, newf, changed, hijacked);
       }
       else
       {
@@ -362,9 +412,9 @@ public class VssChangeProvider implements ChangeProvider
     if( errors.size() > 0 || snapshot == null )
     {
       if (!errors.isEmpty()) {
-        VcsImplUtil.showErrorMessage(project, errors.get(0).getMessage(),
-                                     VssBundle.message("message.title.check.status"));
+        VssScanErrorReporter.getInstance(project).reportChangeScanError(errors.get(0).getMessage());
       }
+      classifyWritableFilesWithoutVssStatus(writableFiles, newFiles, changed, hijacked);
     }
     else
     {
@@ -382,6 +432,28 @@ public class VssChangeProvider implements ChangeProvider
           hijacked.add( path );
         else
           changed.add( path );
+      }
+    }
+  }
+
+  /**
+   * When {@code ss Status} / {@code ss Dir} cannot classify files (e.g. path not in VSS yet),
+   * use local heuristics instead of showing repeated error dialogs.
+   */
+  private void classifyWritableFilesWithoutVssStatus(@NotNull List<String> writableFiles,
+                                                     @NotNull HashSet<String> newFiles,
+                                                     @NotNull HashSet<String> changed,
+                                                     @NotNull HashSet<String> hijacked) {
+    for (String path : writableFiles) {
+      if (progress != null) {
+        progress.checkCanceled();
+      }
+      VirtualFile vf = VssUtil.getVirtualFile(path);
+      if ((vf != null && isParentFolderNewOrUnversioned(vf)) || host.containsNew(path)) {
+        newFiles.add(path);
+      }
+      else {
+        hijacked.add(path);
       }
     }
   }
@@ -727,14 +799,11 @@ public class VssChangeProvider implements ChangeProvider
   }
 
   /**
-   * Return true if:
-   * - file is not null & writable
-   * - file is not a folder
-   * - files is under the project
+   * Return true if file is a non-directory versioned path under this VCS.
    */
   private boolean isFileVssProcessable( VirtualFile file )
   {
-    return (file != null) && file.isWritable() && !file.isDirectory() &&
+    return (file != null) && !file.isDirectory() &&
            VcsUtil.isFileForVcs( file.getPath(), project, VssVcs.getInstance(project) );
   }
 

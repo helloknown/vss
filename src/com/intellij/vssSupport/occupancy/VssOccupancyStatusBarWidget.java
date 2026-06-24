@@ -6,6 +6,7 @@ import com.intellij.openapi.fileEditor.FileEditorManagerListener;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.vcs.FilePath;
+import com.intellij.openapi.vcs.changes.VcsDirtyScopeManager;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.wm.StatusBar;
 import com.intellij.openapi.wm.StatusBarWidget;
@@ -73,6 +74,9 @@ public final class VssOccupancyStatusBarWidget extends EditorBasedWidget impleme
       }
       else {
         text.set(formatOccupancy(occupancy));
+        if (occupancy.isCheckedOutByCurrentUser()) {
+          VcsDirtyScopeManager.getInstance(getProject()).fileDirty(file);
+        }
       }
       updateWidget();
     });

@@ -51,19 +51,9 @@ public class CheckoutAction extends VssAction
     if( e.getPresentation().isEnabled() )
     {
       Project project = e.getData( CommonDataKeys.PROJECT );
-      ChangeListManager mgr = ChangeListManager.getInstance( project );
       VirtualFile[] files = VssUtil.getVirtualFiles( e );
 
-      boolean isEnabled = allFilesAreFolders( files );
-      if( !isEnabled )
-      {
-        isEnabled = true;
-        for ( VirtualFile file : files )
-        {
-          FileStatus status = mgr.getStatus( file );
-          isEnabled &= !file.isDirectory() && (status == FileStatus.NOT_CHANGED);
-        }
-      }
+      boolean isEnabled = VssActionEnablement.canCheckout(project, files);
       e.getPresentation().setEnabled( isEnabled );
     }
   }
