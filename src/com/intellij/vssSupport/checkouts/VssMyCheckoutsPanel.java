@@ -4,7 +4,6 @@ import com.intellij.icons.AllIcons;
 import com.intellij.openapi.ide.CopyPasteManager;
 import com.intellij.openapi.fileEditor.OpenFileDescriptor;
 import com.intellij.openapi.progress.ProgressManager;
-import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.text.StringUtil;
@@ -22,6 +21,7 @@ import com.intellij.vssSupport.Configuration.VssConfiguration;
 import com.intellij.vssSupport.VssBundle;
 import com.intellij.vssSupport.VssTruncatedFileNameUtil;
 import com.intellij.vssSupport.VssUtil;
+import com.intellij.vssSupport.actions.VssDirectCheckinAction;
 import com.intellij.vssSupport.commands.DiffFileCommand;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -55,6 +55,7 @@ public final class VssMyCheckoutsPanel extends JPanel implements com.intellij.op
   private final JCheckBox allUsersCheckBox;
   private final JCheckBox copyFilenameOnly;
   private final Runnable refreshListener = this::reloadTable;
+  private int[] lastSelectedRows = new int[0];
 
   public VssMyCheckoutsPanel(@NotNull Project project) {
     super(new BorderLayout());
@@ -78,6 +79,11 @@ public final class VssMyCheckoutsPanel extends JPanel implements com.intellij.op
         if (e.getClickCount() == 2 && SwingUtilities.isLeftMouseButton(e)) {
           openSelectedFile();
         }
+      }
+    });
+    table.getSelectionModel().addListSelectionListener(e -> {
+      if (!e.getValueIsAdjusting()) {
+        lastSelectedRows = table.getSelectedRows();
       }
     });
 
@@ -240,8 +246,14 @@ public final class VssMyCheckoutsPanel extends JPanel implements com.intellij.op
   @NotNull
   private List<VssCheckoutEntry> getSelectedEntries() {
     int[] rows = table.getSelectedRows();
+    if (rows.length == 0 && lastSelectedRows.length > 0) {
+      rows = lastSelectedRows;
+    }
     List<VssCheckoutEntry> selected = new ArrayList<>();
     for (int row : rows) {
+      if (row < 0 || row >= tableModel.getRowCount()) {
+        continue;
+      }
       SearchStatusRow item = tableModel.getItem(row);
       if (item.entry() != null) {
         selected.add(item.entry());
@@ -252,7 +264,7 @@ public final class VssMyCheckoutsPanel extends JPanel implements com.intellij.op
 
   @Nullable
   private VirtualFile resolveSelectedFile(@NotNull VssCheckoutEntry entry) {
-    return VssUtil.getVirtualFile(VssTruncatedFileNameUtil.completeTruncatedLocalPath(entry.localPath()));
+    return VssMyCheckoutsCommitHelper.resolveEntryFile(entry);
   }
 
   private void copySelection() {
@@ -289,7 +301,13 @@ public final class VssMyCheckoutsPanel extends JPanel implements com.intellij.op
                                VssBundle.message("toolwindow.vss.search.for.status"));
       return;
     }
-    service.checkInEntries(selected);
+    List<VirtualFile> files = VssMyCheckoutsCommitHelper.resolveEntryFiles(selected);
+    if (files.isEmpty()) {
+      Messages.showInfoMessage(project, VssBundle.message("message.my.checkouts.files.not.found"),
+                               VssBundle.message("toolwindow.vss.search.for.status"));
+      return;
+    }
+    VssDirectCheckinAction.performCheckin(project, files.toArray(VirtualFile[]::new));
   }
 
   private void compareWithVss() {
@@ -305,23 +323,18 @@ public final class VssMyCheckoutsPanel extends JPanel implements com.intellij.op
                                VssBundle.message("toolwindow.vss.search.for.status"));
       return;
     }
-    VirtualFile targetFile = file;
-    ProgressManager.getInstance().run(new Task.Backgroundable(
-      project, VssBundle.message("action.Vss.Diff.description"), true) {
-      private final List<VcsException> errors = new ArrayList<>();
-
-      @Override
-      public void run(@NotNull com.intellij.openapi.progress.ProgressIndicator indicator) {
-        new DiffFileCommand(project, targetFile, errors).execute();
-      }
-
-      @Override
-      public void onSuccess() {
+    ProgressManager.getInstance().runProcessWithProgressSynchronously(
+      () -> {
+        List<VcsException> errors = new ArrayList<>();
+        new DiffFileCommand(project, file, errors).execute();
         if (!errors.isEmpty()) {
-          Messages.showErrorDialog(errors.get(0).getLocalizedMessage(), VssBundle.message("message.title.error"));
+          Messages.showErrorDialog(project, errors.get(0).getLocalizedMessage(), VssBundle.message("message.title.error"));
         }
-      }
-    });
+      },
+      VssBundle.message("action.Vss.Diff.description"),
+      true,
+      project
+    );
   }
 
   private void undoCheckout() {
@@ -397,14 +410,16 @@ public final class VssMyCheckoutsPanel extends JPanel implements com.intellij.op
 
     @Nullable
     private Color resolveVcsStatusColor(@NotNull SearchStatusRow row) {
-      VirtualFile file = VssUtil.getVirtualFile(
-        VssTruncatedFileNameUtil.completeTruncatedLocalPath(row.entry().localPath()));
-      if (file == null) {
+      if (row.entry() == null) {
         return null;
       }
-      FileStatus status = FileStatusManager.getInstance(project).getStatus(file);
+      VirtualFile file = VssUtil.getVirtualFile(
+        VssTruncatedFileNameUtil.completeTruncatedLocalPath(row.entry().localPath()));
+      FileStatus status = file != null
+                          ? FileStatusManager.getInstance(project).getStatus(file)
+                          : FileStatus.NOT_CHANGED;
       if (status == FileStatus.NOT_CHANGED) {
-        return null;
+        return FileStatus.MODIFIED.getColor();
       }
       return status.getColor();
     }

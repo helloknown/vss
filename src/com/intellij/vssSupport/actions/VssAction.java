@@ -2,6 +2,7 @@ package com.intellij.vssSupport.actions;
 
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
+import com.intellij.openapi.actionSystem.ActionUpdateThread;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.PlatformDataKeys;
 import com.intellij.openapi.actionSystem.Presentation;
@@ -13,6 +14,8 @@ import com.intellij.vssSupport.Configuration.VssConfiguration;
 import com.intellij.vssSupport.VssUtil;
 import com.intellij.vssSupport.VssVcs;
 
+import org.jetbrains.annotations.NotNull;
+
 import java.awt.*;
 import java.awt.event.InputEvent;
 
@@ -21,6 +24,11 @@ import java.awt.event.InputEvent;
  */
 abstract class VssAction extends AnAction
 {
+  @Override
+  public @NotNull ActionUpdateThread getActionUpdateThread() {
+    return ActionUpdateThread.BGT;
+  }
+
   /**
    * Action is enabled if and only if project is accessible from context,
    * VSS isn't busy and all files in the context are under VSS control.

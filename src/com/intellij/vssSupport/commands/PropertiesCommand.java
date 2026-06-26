@@ -4,6 +4,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vcs.VcsException;
 import com.intellij.vssSupport.VssOutputCollector;
 import com.intellij.vssSupport.VssUtil;
+import com.intellij.vssSupport.ignore.VssIgnoreService;
 import com.intellij.vssSupport.occupancy.VssPropertiesInfo;
 import com.intellij.vssSupport.occupancy.VssPropertiesParser;
 import org.jetbrains.annotations.NonNls;
@@ -20,6 +21,7 @@ public class PropertiesCommand extends VssCommandAbstract
 
   private final String vssPath;
   private final String tmpPath;
+  private final String localPath;
   private boolean isValidRepositoryObject;
   @Nullable private VssPropertiesInfo propertiesInfo;
 
@@ -28,12 +30,16 @@ public class PropertiesCommand extends VssCommandAbstract
     super( project, new ArrayList<>() );
 
     tmpPath = new File( path ).getParent();
+    localPath = VssUtil.getCanonicalLocalPath(path);
     vssPath = VssUtil.getVssPath( path, isFolder, project );
     isValidRepositoryObject = true;
   }
 
   public void execute()
   {
+    if (VssIgnoreService.getInstance(myProject).isIgnored(localPath)) {
+      return;
+    }
     //  Avoid running the command with NULL Vss path. This is possible when
     //  input path lies outside the Vss project store.
     if( vssPath != null )

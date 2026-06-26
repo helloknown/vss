@@ -9,6 +9,7 @@ import com.intellij.vcsUtil.VcsUtil;
 import com.intellij.vssSupport.Configuration.VssConfiguration;
 import com.intellij.vssSupport.commands.PropertiesCommand;
 import com.intellij.vssSupport.commands.VssCheckoutStatusCommand;
+import com.intellij.vssSupport.ignore.VssIgnoreService;
 import com.intellij.vssSupport.VssUtil;
 import com.intellij.vssSupport.VssVcs;
 import org.jetbrains.annotations.NotNull;
@@ -50,8 +51,15 @@ public final class VssFileOccupancyService {
     if (!isVssPath(path)) {
       return null;
     }
+    String key = normalizeKey(path.getPath());
+    if (VssIgnoreService.getInstance(project).isIgnored(path.getPath())) {
+      cache.remove(key);
+      return null;
+    }
     VssFileOccupancy occupancy = query(path);
-    cache.put(normalizeKey(path.getPath()), occupancy);
+    if (occupancy != null) {
+      cache.put(key, occupancy);
+    }
     return occupancy;
   }
 
@@ -61,8 +69,16 @@ public final class VssFileOccupancyService {
       return;
     }
     ApplicationManager.getApplication().executeOnPooledThread(() -> {
+      String key = normalizeKey(path.getPath());
+      if (VssIgnoreService.getInstance(project).isIgnored(path.getPath())) {
+        cache.remove(key);
+        ApplicationManager.getApplication().invokeLater(onDone);
+        return;
+      }
       VssFileOccupancy occupancy = query(path);
-      cache.put(normalizeKey(path.getPath()), occupancy);
+      if (occupancy != null) {
+        cache.put(key, occupancy);
+      }
       ApplicationManager.getApplication().invokeLater(onDone);
     });
   }
@@ -75,6 +91,7 @@ public final class VssFileOccupancyService {
     return ProjectLevelVcsManager.getInstance(project).getVcsFor(path) == vss;
   }
 
+  @Nullable
   private VssFileOccupancy query(@NotNull FilePath path) {
     String localPath = VssUtil.getCanonicalLocalPath(path.getPath());
 

@@ -26,6 +26,7 @@ import com.intellij.openapi.vcs.changes.ChangeListManager;
 import com.intellij.openapi.vcs.changes.VcsDirtyScopeManager;
 import com.intellij.openapi.vfs.*;
 import com.intellij.vcsUtil.VcsUtil;
+import com.intellij.vssSupport.ignore.VssIgnoreService;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
@@ -54,6 +55,9 @@ public class VFSListener implements CommandListener, VirtualFileListener {
   public void fileCreated(@NotNull VirtualFileEvent event )
   {
     VirtualFile file = event.getFile();
+    if (VssIgnoreService.IGNORE_FILE_NAME.equals(file.getName())) {
+      VssIgnoreService.getInstance(project).invalidate();
+    }
 
     //  In the case of multi-vcs project configurations, we need to skip all
     //  notifications on non-owned files
@@ -123,6 +127,13 @@ public class VFSListener implements CommandListener, VirtualFileListener {
         FilePath path = VcsUtil.getFilePath(file);
         filesDeleted.add( path );
       }
+    }
+  }
+
+  @Override
+  public void contentsChanged(@NotNull VirtualFileEvent event) {
+    if (VssIgnoreService.IGNORE_FILE_NAME.equals(event.getFile().getName())) {
+      VssIgnoreService.getInstance(project).invalidate();
     }
   }
 

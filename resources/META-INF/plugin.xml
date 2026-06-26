@@ -33,6 +33,7 @@
         <projectService serviceImplementation="com.intellij.vssSupport.occupancy.VssFileOccupancyService"/>
         <projectService serviceImplementation="com.intellij.vssSupport.occupancy.VssDirectoryStatusCache"/>
         <projectService serviceImplementation="com.intellij.vssSupport.checkouts.VssMyCheckoutsService"/>
+        <projectService serviceImplementation="com.intellij.vssSupport.ignore.VssIgnoreService"/>
 
         <postStartupActivity implementation="com.intellij.vssSupport.Configuration.VssMappingStartupActivity"/>
 

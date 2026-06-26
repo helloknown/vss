@@ -9,15 +9,18 @@ import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.vcs.changes.VcsDirtyScopeManager;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.concurrency.AppExecutorUtil;
 import com.intellij.vssSupport.Configuration.VssConfiguration;
 import com.intellij.vssSupport.VssBundle;
+import com.intellij.vssSupport.VssTruncatedFileNameUtil;
 import com.intellij.vssSupport.VssUtil;
+import com.intellij.vssSupport.ignore.VssIgnoreService;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.annotations.Nullable;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Set;
@@ -226,7 +229,33 @@ public final class VssMyCheckoutsService {
       entries = scanned;
       focusFolder = null;
     }
+    scheduleVcsStatusRefresh(entries);
     notifyListeners();
+  }
+
+  private void scheduleVcsStatusRefresh(@NotNull List<VssCheckoutEntry> entries) {
+    if (entries.isEmpty()) {
+      return;
+    }
+    ApplicationManager.getApplication().executeOnPooledThread(() -> {
+      List<VirtualFile> files = new ArrayList<>();
+      for (VssCheckoutEntry entry : entries) {
+        VirtualFile file = VssUtil.getVirtualFile(
+          VssTruncatedFileNameUtil.completeTruncatedLocalPath(entry.localPath()));
+        if (file != null && !file.isDirectory()) {
+          files.add(file);
+        }
+      }
+      if (files.isEmpty()) {
+        return;
+      }
+      ApplicationManager.getApplication().invokeLater(() -> {
+        if (project.isDisposed()) {
+          return;
+        }
+        VcsDirtyScopeManager.getInstance(project).filesDirty(files, null);
+      });
+    });
   }
 
   @NotNull
@@ -252,6 +281,6 @@ public final class VssMyCheckoutsService {
     if (selected.isEmpty() || project.isDisposed()) {
       return;
     }
-    VssMyCheckoutsCommitHelper.checkIn(project, selected);
+    VssMyCheckoutsCommitHelper.openCommitPanel(project, selected);
   }
 }

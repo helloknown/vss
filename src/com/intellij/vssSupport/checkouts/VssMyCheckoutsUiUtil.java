@@ -1,6 +1,7 @@
 package com.intellij.vssSupport.checkouts;
 
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.vcs.changes.ui.ChangesViewContentManager;
 import com.intellij.openapi.wm.ToolWindow;
 import com.intellij.openapi.wm.ToolWindowId;
 import com.intellij.openapi.wm.ToolWindowManager;
@@ -13,8 +14,11 @@ public final class VssMyCheckoutsUiUtil {
   }
 
   public static void showCommitToolWindow(@NotNull Project project) {
-    ToolWindow commit = ToolWindowManager.getInstance(project).getToolWindow(ToolWindowId.COMMIT);
-    if (commit != null) {
+    ToolWindow commit = ChangesViewContentManager.getToolWindowFor(project, ChangesViewContentManager.COMMIT_TOOLWINDOW_ID);
+    if (commit == null) {
+      commit = ToolWindowManager.getInstance(project).getToolWindow(ToolWindowId.COMMIT);
+    }
+    if (commit != null && commit.isAvailable()) {
       commit.show(null);
       commit.activate(null);
     }

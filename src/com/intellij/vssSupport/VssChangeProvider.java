@@ -17,6 +17,7 @@ import com.intellij.vssSupport.Configuration.VssMappingStorage;
 import com.intellij.vssSupport.occupancy.VssDirectoryStatusCache;
 import com.intellij.vssSupport.commands.PropertiesCommand;
 import com.intellij.vssSupport.commands.StatusMultipleCommand;
+import com.intellij.vssSupport.ignore.VssIgnoreService;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -206,9 +207,9 @@ public class VssChangeProvider implements ChangeProvider
               file.putUserData( SUCCESSFUL_CHECKOUT, null );
               filesChanged.add( file.getPath() );
             }
-            else
+            else if (file.isWritable())
             {
-              paths.add( path.getPath() );
+              paths.add(path.getPath());
             }
           }
         }
@@ -291,8 +292,10 @@ public class VssChangeProvider implements ChangeProvider
         String path = file.getPath();
         VirtualFile vFile = file.getVirtualFile();
         if(vFile != null) {
-          if( host.isFileIgnored(vFile) )
+          if( host.isFileIgnored(vFile) ) {
             filesIgnored.add( path );
+            return !vFile.isDirectory();
+          }
           else if (vFile.isWritable() && !vFile.isDirectory() )
             writableFiles.add( path );
         }
@@ -344,8 +347,18 @@ public class VssChangeProvider implements ChangeProvider
                                              HashSet<String> newf, HashSet<String> changed,
                                              HashSet<String> hijacked, HashSet<String> obsolete )
   {
+    List<String> trackedFiles = new ArrayList<>();
+    for (String file : files) {
+      if (!VssIgnoreService.getInstance(project).isIgnored(file)) {
+        trackedFiles.add(file);
+      }
+    }
+    if (trackedFiles.isEmpty()) {
+      return;
+    }
+
     List<String> oldNames = new ArrayList<>();
-    for( String file : files )
+    for( String file : trackedFiles )
     {
       String legalName = discoverOldName( host, file );
       oldNames.add( legalName );
@@ -362,22 +375,25 @@ public class VssChangeProvider implements ChangeProvider
       {
         String errorMessage = cmd.getErrors().get(0).getMessage();
         VssScanErrorReporter.getInstance(project).reportChangeScanError(errorMessage);
-        classifyWritableFilesWithoutVssStatus(files, newf, changed, hijacked);
+        classifyWritableFilesWithoutVssStatus(trackedFiles, newf, changed, hijacked);
       }
       else
       {
-        for( int i = 0; i < files.size(); i++ )
-        {
-          if( cmd.isDeleted( oldNames.get( i ) ) )
-            obsolete.add( files.get( i ) );
+        for (int i = 0; i < trackedFiles.size(); i++) {
+          VirtualFile file = VssUtil.getVirtualFile(trackedFiles.get(i));
+          if (file != null && !file.isWritable()) {
+            continue;
+          }
+          if (cmd.isDeleted(oldNames.get(i)))
+            obsolete.add( trackedFiles.get( i ) );
           else
           if( cmd.isNonexist( oldNames.get( i ) ) )
-            newf.add( files.get( i ) );
+            newf.add( trackedFiles.get( i ) );
           else
           if( cmd.isCheckedout( oldNames.get( i ) ) )
-            changed.add( files.get( i ) );
+            changed.add( trackedFiles.get( i ) );
           else
-            hijacked.add( files.get( i ) );
+            hijacked.add( trackedFiles.get( i ) );
         }
       }
     }
@@ -419,12 +435,15 @@ public class VssChangeProvider implements ChangeProvider
     else
     {
       VssDirectoryStatusCache cache = VssDirectoryStatusCache.getInstance(project);
-      for( String path : writableFiles )
-      {
+      for (String path : writableFiles) {
         if (progress != null) {
           progress.checkCanceled();
         }
-        String oldPath = VssChangeProvider.discoverOldName( host, path ).toLowerCase();
+        VirtualFile file = VssUtil.getVirtualFile(path);
+        if (file != null && !file.isWritable()) {
+          continue;
+        }
+        String oldPath = VssChangeProvider.discoverOldName(host, path).toLowerCase();
         if( !cache.isInProject(snapshot, oldPath) )
           newFiles.add( path );
         else
@@ -447,6 +466,9 @@ public class VssChangeProvider implements ChangeProvider
     for (String path : writableFiles) {
       if (progress != null) {
         progress.checkCanceled();
+      }
+      if (VssIgnoreService.getInstance(project).isIgnored(path)) {
+        continue;
       }
       VirtualFile vf = VssUtil.getVirtualFile(path);
       if ((vf != null && isParentFolderNewOrUnversioned(vf)) || host.containsNew(path)) {
@@ -472,6 +494,11 @@ public class VssChangeProvider implements ChangeProvider
     if( VcsUtil.isFileForVcs(fileParent, project, VssVcs.getInstance(project)) && !processedFolders.contains( fileParent ) )
     {
       processedFolders.add( fileParent );
+
+      if( VssIgnoreService.getInstance(project).isIgnored(fileParentNorm) )
+      {
+        return;
+      }
 
       if( !isFolderExists( refParentName ) )
       {
@@ -535,7 +562,7 @@ public class VssChangeProvider implements ChangeProvider
       }
       else
       {
-        builder.processUnversionedFile(VssUtil.getVirtualFile(fileName));
+        builder.processUnversionedFile(VcsUtil.getFilePath(fileName));
       }
     }
   }
@@ -634,6 +661,9 @@ public class VssChangeProvider implements ChangeProvider
   private boolean isFolderExists( String fileName )
   {
     String fileNameCanonical = VssUtil.getCanonicalLocalPath( fileName );
+    if (VssIgnoreService.getInstance(project).isIgnored(fileNameCanonical)) {
+      return true;
+    }
     PropertiesCommand cmd = new PropertiesCommand( project, fileNameCanonical, true );
     cmd.execute();
 

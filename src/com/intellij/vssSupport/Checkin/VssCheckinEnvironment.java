@@ -127,6 +127,13 @@ public class VssCheckinEnvironment implements CheckinEnvironment
                                    Set<? super String> feedback)
   {
     List<Change> changeList = new ArrayList<>(changes);
+    changeList.removeIf(change -> {
+      VirtualFile file = change.getVirtualFile();
+      return file != null && host.isFileIgnored(file);
+    });
+    if (changeList.isEmpty()) {
+      return List.of();
+    }
     List<VcsException> errors = new ArrayList<>();
     HashSet<FilePath> processedFiles = new HashSet<>();
 

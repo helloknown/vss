@@ -17,6 +17,7 @@ import com.intellij.vssSupport.VssBundle;
 import com.intellij.vssSupport.VssTruncatedFileNameUtil;
 import com.intellij.vssSupport.VssUtil;
 import com.intellij.vssSupport.VssVcs;
+import com.intellij.vssSupport.ignore.VssIgnoreService;
 import com.intellij.vssSupport.commands.MyCheckoutsDirCommand;
 import com.intellij.vssSupport.commands.StatusMultipleCommand;
 import com.intellij.vssSupport.commands.VssCheckoutStatusCommand;
@@ -93,6 +94,9 @@ public final class MyCheckoutsScanner {
     List<VssCheckoutEntry> entries = new ArrayList<>();
     for (VssCheckoutEntry entry : cmd.getEntries()) {
       indicator.checkCanceled();
+      if (VssIgnoreService.getInstance(project).isIgnored(entry.localPath())) {
+        continue;
+      }
       if (isUnderFolder(entry.localPath(), folder.getPath())) {
         entries.add(entry);
       }
@@ -120,6 +124,9 @@ public final class MyCheckoutsScanner {
       List<String> checkedOut = new ArrayList<>();
       for (String localPath : candidateFiles) {
         indicator.checkCanceled();
+        if (VssIgnoreService.getInstance(project).isIgnored(localPath)) {
+          continue;
+        }
         if (batch.isCheckedout(localPath)) {
           checkedOut.add(localPath);
         }
@@ -131,6 +138,10 @@ public final class MyCheckoutsScanner {
         String localPath = checkedOut.get(index);
         indicator.setFraction(detailTotal == 0 ? 1.0 : (double) index / detailTotal);
         indicator.setText2(new File(localPath).getName());
+
+        if (VssIgnoreService.getInstance(project).isIgnored(localPath)) {
+          continue;
+        }
 
         VssCheckoutStatusCommand cmd = new VssCheckoutStatusCommand(project, VcsUtil.getFilePath(localPath));
         cmd.execute();
@@ -198,7 +209,9 @@ public final class MyCheckoutsScanner {
         if (vcs.equals(mgr.getVcsFor(file))) {
           VirtualFile vf = file.getVirtualFile();
           if (vf != null && !vf.isDirectory() && vf.isWritable()) {
-            files.add(vf.getPath());
+            if (!VssIgnoreService.getInstance(project).isIgnored(vf.getPath())) {
+              files.add(vf.getPath());
+            }
           }
         }
         return true;

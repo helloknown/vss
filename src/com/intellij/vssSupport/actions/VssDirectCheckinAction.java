@@ -3,18 +3,16 @@ package com.intellij.vssSupport.actions;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.Presentation;
-import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.vssSupport.VssUtil;
 import com.intellij.vssSupport.checkouts.VssMyCheckoutsCommitHelper;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.Arrays;
 import java.util.List;
 
 /**
- * Check in selected VSS files directly (comment dialog only, no Commit tool window).
+ * Opens the IDE Commit tool window for the selected VSS file(s).
  */
 public final class VssDirectCheckinAction extends VssAction {
   @Override
@@ -38,8 +36,13 @@ public final class VssDirectCheckinAction extends VssAction {
     if (files.length == 0) {
       return;
     }
-    FileDocumentManager.getInstance().saveAllDocuments();
-    List<VirtualFile> list = Arrays.asList(files);
-    VssMyCheckoutsCommitHelper.checkInFiles(project, list);
+    performCheckin(project, files);
+  }
+
+  public static void performCheckin(@NotNull Project project, @NotNull VirtualFile[] files) {
+    if (project.isDisposed() || files.length == 0) {
+      return;
+    }
+    VssMyCheckoutsCommitHelper.openCommitPanelForFiles(project, List.of(files));
   }
 }

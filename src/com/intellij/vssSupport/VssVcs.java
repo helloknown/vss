@@ -33,6 +33,7 @@ import com.intellij.vssSupport.Configuration.VssMappingStorage;
 import com.intellij.vssSupport.commands.*;
 import com.intellij.vssSupport.VssShowSettingOption;
 import com.intellij.vssSupport.VssUtil;
+import com.intellij.vssSupport.ignore.VssIgnoreService;
 import org.jdom.Element;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -340,7 +341,10 @@ public class VssVcs extends AbstractVcs implements PersistentStateComponent<Elem
    */
   public boolean isFileIgnored(VirtualFile file) {
     ChangeListManager mgr = ChangeListManager.getInstance(myProject);
-    return mgr.isIgnoredFile(file);
+    if (mgr.isIgnoredFile(file)) {
+      return true;
+    }
+    return VssIgnoreService.getInstance(myProject).isIgnored(file);
   }
 
   @Override
