@@ -18,7 +18,7 @@ Visual SourceSafe is a file-level version control system. This plugin allows usi
 ## Requirements
 
 * JDK 17+
-* IntelliJ IDEA 2024.2 or later (Community or Ultimate)
+* IntelliJ IDEA 2024.1 or later (Community or Ultimate)
 
 ## Build and run
 

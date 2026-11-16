@@ -4,7 +4,9 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vcs.FilePath;
+import com.intellij.openapi.vcs.FileStatusManager;
 import com.intellij.openapi.vcs.ProjectLevelVcsManager;
+import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.vcsUtil.VcsUtil;
 import com.intellij.vssSupport.Configuration.VssConfiguration;
 import com.intellij.vssSupport.commands.PropertiesCommand;
@@ -40,10 +42,16 @@ public final class VssFileOccupancyService {
 
   public void invalidate(@NotNull FilePath path) {
     cache.remove(normalizeKey(path.getPath()));
+    refreshFileColor(path);
   }
 
   public void invalidateAll() {
     cache.clear();
+    ApplicationManager.getApplication().invokeLater(() -> {
+      if (!project.isDisposed()) {
+        FileStatusManager.getInstance(project).fileStatusesChanged();
+      }
+    });
   }
 
   @Nullable
@@ -54,13 +62,40 @@ public final class VssFileOccupancyService {
     String key = normalizeKey(path.getPath());
     if (VssIgnoreService.getInstance(project).isIgnored(path.getPath())) {
       cache.remove(key);
+      refreshFileColor(path);
       return null;
     }
     VssFileOccupancy occupancy = query(path);
     if (occupancy != null) {
       cache.put(key, occupancy);
     }
+    refreshFileColor(path);
     return occupancy;
+  }
+
+  /**
+   * True when VSS reports this file checked out by the configured user.
+   * Uses the occupancy cache when present, otherwise {@code ss Status} (not {@code -U}).
+   * Does not cache a partial result, so Properties can still load the full record.
+   */
+  public boolean isCheckedOutByCurrentUserNow(@NotNull FilePath path) {
+    VssFileOccupancy cached = getCached(path);
+    if (cached != null) {
+      return cached.isCheckedOutByCurrentUser();
+    }
+    if (!isVssPath(path) || VssIgnoreService.getInstance(project).isIgnored(path.getPath())) {
+      return false;
+    }
+    VssCheckoutStatusCommand statusCommand = new VssCheckoutStatusCommand(project, path);
+    statusCommand.execute();
+    VssCheckoutInfo checkout = statusCommand.getCheckoutInfo();
+    boolean checkedOut = isCheckedOutByCurrentUser(checkout);
+    if (getCached(path) == null) {
+      cache.put(normalizeKey(path.getPath()),
+                new VssFileOccupancy(VssUtil.getCanonicalLocalPath(path.getPath()), null, checkout, checkedOut));
+      refreshFileColor(path);
+    }
+    return checkedOut;
   }
 
   public void queryAsync(@NotNull FilePath path, @NotNull Runnable onDone) {
@@ -72,6 +107,7 @@ public final class VssFileOccupancyService {
       String key = normalizeKey(path.getPath());
       if (VssIgnoreService.getInstance(project).isIgnored(path.getPath())) {
         cache.remove(key);
+        refreshFileColor(path);
         ApplicationManager.getApplication().invokeLater(onDone);
         return;
       }
@@ -79,6 +115,7 @@ public final class VssFileOccupancyService {
       if (occupancy != null) {
         cache.put(key, occupancy);
       }
+      refreshFileColor(path);
       ApplicationManager.getApplication().invokeLater(onDone);
     });
   }
@@ -119,6 +156,27 @@ public final class VssFileOccupancyService {
       return false;
     }
     return configuredUser.equalsIgnoreCase(checkout.getUser().trim());
+  }
+
+  /**
+   * Tree color is cached by the IDE. After checkout data changes, ask it to read {@link VssFileStatusProvider} again.
+   */
+  private void refreshFileColor(@NotNull FilePath path) {
+    VirtualFile file = path.getVirtualFile();
+    if (file == null || project.isDisposed()) {
+      return;
+    }
+    Runnable refresh = () -> {
+      if (!project.isDisposed() && file.isValid()) {
+        FileStatusManager.getInstance(project).fileStatusChanged(file);
+      }
+    };
+    if (ApplicationManager.getApplication().isDispatchThread()) {
+      refresh.run();
+    }
+    else {
+      ApplicationManager.getApplication().invokeLater(refresh);
+    }
   }
 
   private static String normalizeKey(String path) {

@@ -7,6 +7,7 @@ import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.vcs.FilePath;
+import com.intellij.openapi.vcs.changes.VcsDirtyScopeManager;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.vcsUtil.VcsUtil;
 import com.intellij.vssSupport.VssBundle;
@@ -27,7 +28,8 @@ public final class PropertiesAction extends VssAction {
       return;
     }
 
-    FilePath path = VcsUtil.getFilePath(files[0]);
+    VirtualFile file = files[0];
+    FilePath path = VcsUtil.getFilePath(file);
     ProgressManager.getInstance().run(new Task.Modal(project, VssBundle.message("progress.title.vss.properties"), true) {
       private VssFileOccupancy occupancy;
 
@@ -43,6 +45,10 @@ public final class PropertiesAction extends VssAction {
           Messages.showErrorDialog(project, VssBundle.message("message.text.vss.properties.failed"),
                                    VssBundle.message("message.title.error"));
           return;
+        }
+        if (occupancy.isCheckedOutByCurrentUser()) {
+          VssUtil.ensureLocallyWritable(project, file);
+          VcsDirtyScopeManager.getInstance(project).fileDirty(file);
         }
         VssPropertiesDialog dialog = new VssPropertiesDialog(project, occupancy);
         dialog.show();

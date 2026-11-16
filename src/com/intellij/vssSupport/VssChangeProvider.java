@@ -15,6 +15,7 @@ import com.intellij.vcsUtil.VcsUtil;
 import com.intellij.vssSupport.Configuration.VssConfiguration;
 import com.intellij.vssSupport.Configuration.VssMappingStorage;
 import com.intellij.vssSupport.occupancy.VssDirectoryStatusCache;
+import com.intellij.vssSupport.occupancy.VssFileOccupancyService;
 import com.intellij.vssSupport.commands.PropertiesCommand;
 import com.intellij.vssSupport.commands.StatusMultipleCommand;
 import com.intellij.vssSupport.ignore.VssIgnoreService;
@@ -205,11 +206,19 @@ public class VssChangeProvider implements ChangeProvider
               //  is classified, otherwise this file will always be determined
               //  as modified.
               file.putUserData( SUCCESSFUL_CHECKOUT, null );
-              filesChanged.add( file.getPath() );
+              filesChanged.add( VssUtil.getCanonicalLocalPath( file.getPath() ) );
+              makeCheckedOutFileWritable( file );
             }
             else if (file.isWritable())
             {
               paths.add(path.getPath());
+            }
+            else if (VssFileOccupancyService.getInstance(project).isCheckedOutByCurrentUserNow(path))
+            {
+              // IDEA 2026+ often keeps the VFS read-only flag after VSS checkout
+              // (attribute-only updates are missed). Checkout still means modified.
+              filesChanged.add( VssUtil.getCanonicalLocalPath( file.getPath() ) );
+              makeCheckedOutFileWritable( file );
             }
           }
         }
@@ -262,6 +271,7 @@ public class VssChangeProvider implements ChangeProvider
         continue;
       }
       filesChanged.add(VssUtil.getCanonicalLocalPath(file.getPath()));
+      makeCheckedOutFileWritable(file);
     }
   }
 
@@ -381,6 +391,13 @@ public class VssChangeProvider implements ChangeProvider
       {
         for (int i = 0; i < trackedFiles.size(); i++) {
           VirtualFile file = VssUtil.getVirtualFile(trackedFiles.get(i));
+          if (cmd.isCheckedout(oldNames.get(i))) {
+            changed.add(trackedFiles.get(i));
+            if (file != null) {
+              makeCheckedOutFileWritable(file);
+            }
+            continue;
+          }
           if (file != null && !file.isWritable()) {
             continue;
           }
@@ -389,9 +406,6 @@ public class VssChangeProvider implements ChangeProvider
           else
           if( cmd.isNonexist( oldNames.get( i ) ) )
             newf.add( trackedFiles.get( i ) );
-          else
-          if( cmd.isCheckedout( oldNames.get( i ) ) )
-            changed.add( trackedFiles.get( i ) );
           else
             hijacked.add( trackedFiles.get( i ) );
         }
@@ -440,17 +454,20 @@ public class VssChangeProvider implements ChangeProvider
           progress.checkCanceled();
         }
         VirtualFile file = VssUtil.getVirtualFile(path);
-        if (file != null && !file.isWritable()) {
+        String oldPath = VssUtil.getCanonicalLocalPath(discoverOldName(host, path)).toLowerCase();
+        if (cache.isCheckedOut(snapshot, oldPath)) {
+          changed.add(path);
+          if (file != null) {
+            makeCheckedOutFileWritable(file);
+          }
+        }
+        else if (file != null && !file.isWritable()) {
           continue;
         }
-        String oldPath = VssChangeProvider.discoverOldName(host, path).toLowerCase();
-        if( !cache.isInProject(snapshot, oldPath) )
+        else if( !cache.isInProject(snapshot, oldPath) )
           newFiles.add( path );
         else
-        if( !cache.isCheckedOut(snapshot, oldPath ))
           hijacked.add( path );
-        else
-          changed.add( path );
       }
     }
   }
@@ -613,7 +630,7 @@ public class VssChangeProvider implements ChangeProvider
       final FilePath currPath = VcsUtil.getFilePath( fileName );
       
       VssContentRevision revision = ContentRevisionFactory.getRevision( refPath, project );
-      builder.processChange( new Change( revision, new CurrentContentRevision( currPath )), VssVcs.getKey());
+      builder.processChange( new Change( revision, new CurrentContentRevision( currPath ), FileStatus.MODIFIED ), VssVcs.getKey());
     }
 
     for( String folderName : host.renamedFolders.keySet() )
@@ -701,15 +718,33 @@ public class VssChangeProvider implements ChangeProvider
   private static boolean isProperNotification( final FilePath filePath )
   {
     String oldName = filePath.getName();
-    String newName = (filePath.getVirtualFile() == null) ? "" : filePath.getVirtualFile().getName();
-    String oldParent = (filePath.getVirtualFileParent() == null) ? "" : filePath.getVirtualFileParent().getPath();
-    String newParent = filePath.getPath().substring( 0, filePath.getPath().length() - oldName.length() - 1 );
-    newParent = VssUtil.getCanonicalLocalPath( newParent );
+    VirtualFile vf = filePath.getVirtualFile();
+    String newName = vf == null ? "" : vf.getName();
+    VirtualFile parent = filePath.getVirtualFileParent();
+    String oldParent = parent == null ? "" : parent.getPath();
+    FilePath parentPath = filePath.getParentPath();
+    String newParent = parentPath == null ? "" : parentPath.getPath();
 
-    //  Check the case when the file is deleted - its FilePath's VirtualFile
-    //  component is null and thus new name is empty.
-    return newParent.equals( oldParent ) &&
-          ( newName.equals( oldName ) || (newName == "" && oldName != "") );
+    //  Deleted files have no VirtualFile, so the new name is empty.
+    //  Compare parents with FileUtil so a drive-letter / separator change in
+    //  IDEA 2026 does not drop the file from the change scan.
+    return FileUtil.pathsEqual( newParent, oldParent ) &&
+          ( newName.equalsIgnoreCase( oldName ) || (newName.isEmpty() && !oldName.isEmpty()) );
+  }
+
+  /**
+   * Checkout makes the working copy writable. Do it on the EDT later so a
+   * background change scan does not take a write action.
+   */
+  private void makeCheckedOutFileWritable(@NotNull VirtualFile file) {
+    if (file.isWritable() || project.isDisposed()) {
+      return;
+    }
+    ApplicationManager.getApplication().invokeLater(() -> {
+      if (!project.isDisposed() && file.isValid() && !file.isWritable()) {
+        VssUtil.ensureLocallyWritable(project, file);
+      }
+    });
   }
 
   /**

@@ -8,6 +8,8 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.vcsUtil.VcsUtil;
 import com.intellij.vssSupport.VssUtil;
 import com.intellij.vssSupport.VssVcs;
+import com.intellij.vssSupport.occupancy.VssFileOccupancy;
+import com.intellij.vssSupport.occupancy.VssFileOccupancyService;
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -34,6 +36,9 @@ public final class VssActionEnablement {
       if (VssUtil.isPendingVssAddition(project, file)) {
         return false;
       }
+      if (isKnownSelfCheckout(project, file)) {
+        return false;
+      }
       if (statusManager.getStatus(file) != FileStatus.NOT_CHANGED) {
         return false;
       }
@@ -57,11 +62,23 @@ public final class VssActionEnablement {
       if (file.isDirectory()) {
         return false;
       }
-      if (statusManager.getStatus(file) != FileStatus.MODIFIED) {
+      if (statusManager.getStatus(file) != FileStatus.MODIFIED && !isKnownSelfCheckout(project, file)) {
         return false;
       }
     }
     return true;
+  }
+
+  /**
+   * Properties / status bar already asked VSS. A checked-out file can still be
+   * {@link FileStatus#NOT_CHANGED} until the change list catches up.
+   */
+  private static boolean isKnownSelfCheckout(@NotNull Project project, @NotNull VirtualFile file) {
+    if (file.isDirectory()) {
+      return false;
+    }
+    VssFileOccupancy occupancy = VssFileOccupancyService.getInstance(project).getCached(VcsUtil.getFilePath(file));
+    return occupancy != null && occupancy.isCheckedOutByCurrentUser();
   }
 
   private static boolean folderContainsStatus(@NotNull Project project,

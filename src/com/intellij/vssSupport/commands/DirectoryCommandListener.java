@@ -7,11 +7,11 @@ import com.intellij.openapi.vcs.VcsException;
 import com.intellij.vssSupport.Configuration.VssConfiguration;
 import com.intellij.vssSupport.VssBundle;
 import com.intellij.vssSupport.VssOutputCollector;
+import com.intellij.vssSupport.VssTruncatedFileNameUtil;
 import com.intellij.vssSupport.VssUtil;
+import com.intellij.vssSupport.occupancy.VssCheckoutStatusParser;
 import org.jetbrains.annotations.NonNls;
 
-import java.io.File;
-import java.io.FilenameFilter;
 import java.util.HashSet;
 import java.util.List;
 
@@ -130,6 +130,21 @@ public class DirectoryCommandListener extends VssOutputCollector
     String fileName = null;
     String userName = VssConfiguration.getInstance( project ).USER_NAME.toLowerCase();
 
+    // Checked-out names longer than 19 characters do not sit in the fixed column,
+    // and the local file may still be read-only. Resolve both before giving up.
+    if( StringUtil.isNotEmpty( userName ) )
+    {
+      String checkedOutName = VssCheckoutStatusParser.extractCheckedOutFileName( line, userName );
+      if( checkedOutName != null && checkedOutName.indexOf( '\\' ) < 0 && checkedOutName.indexOf( '/' ) < 0 )
+      {
+        String checkedOutPath = VssTruncatedFileNameUtil.completeTruncatedLocalPath( lastFolderName + "/" + checkedOutName );
+        checkedOutPath = VssUtil.getCanonicalLocalPath( checkedOutPath ).toLowerCase();
+        filesCheckedOut.add( checkedOutPath );
+        filesInProject.add( checkedOutPath );
+        return;
+      }
+    }
+
     //  If the user name is specified (in the configuration), try to find it in
     //  the input line. If present, then the file belongs to the checkout list
     //  of the current user. Otherwise it is a valid file which needs to be
@@ -172,30 +187,10 @@ public class DirectoryCommandListener extends VssOutputCollector
   }
   
   /**
-   * Given a possibly truncated path of a checked out file, try to complete
-   * the path by matching file names of writable files in the same directory.
-   * NB: Does not work with renamed files or files under the renamed folders.
-   * ToDo: fix that!
+   * Completes a 19-character VSS name even when the local file is still read-only.
    */
   private static String completeFileName(String fileName)
   {
-    File file = new File(fileName);
-    final String parent = file.getParent();
-    final String truncatedName = file.getName().toLowerCase();
-    String fullName = truncatedName;
-    String[] fullNames = file.getParentFile().list((dir, name) -> name.toLowerCase().startsWith(truncatedName));
-
-    //  if abstract pathname does not denote a directory, or if an I/O error
-    // occurs, "File.list()" returns null.
-    if( fullNames != null )
-    {
-      for (String name : fullNames) {
-        if (new File(parent, name).canWrite()) {
-          fullName = name.toLowerCase();
-          break;
-        }
-      }
-    }
-    return parent + "/" + fullName;
+    return VssTruncatedFileNameUtil.completeTruncatedLocalPath(fileName);
   }
 }

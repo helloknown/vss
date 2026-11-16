@@ -3,6 +3,7 @@ package com.intellij.vssSupport.occupancy;
 import com.intellij.openapi.util.text.LineTokenizer;
 import com.intellij.openapi.util.text.StringUtil;
 import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Arrays;
@@ -92,6 +93,46 @@ public final class VssCheckoutStatusParser {
     }
 
     return new VssCheckoutInfo(true, user, dateTime, workingFolder, checkoutType);
+  }
+
+  /**
+   * File name from an {@code ss Status}/{@code ss Dir} checkout line when {@code user} is the checkout user.
+   * VSS pads or truncates the name to 19 characters; longer names are not in that column.
+   */
+  @Nullable
+  public static String extractCheckedOutFileName(@NotNull String line, @NotNull String user) {
+    String login = user.trim();
+    if (login.isEmpty() || line.isEmpty()) {
+      return null;
+    }
+    if (line.length() > 20 && line.charAt(19) == ' ') {
+      if (startsWithUser(line.substring(20), login)) {
+        return line.substring(0, 19).trim();
+      }
+      return null;
+    }
+    if (line.length() > 19 && line.charAt(18) != ' ' && startsWithUser(line.substring(19), login)) {
+      return line.substring(0, 19);
+    }
+    String lower = line.toLowerCase(Locale.ENGLISH);
+    String needle = " " + login.toLowerCase(Locale.ENGLISH) + " ";
+    int index = lower.indexOf(needle);
+    if (index <= 0) {
+      return null;
+    }
+    String name = line.substring(0, index).trim();
+    return name.isEmpty() ? null : name;
+  }
+
+  private static boolean startsWithUser(String remainder, String user) {
+    String trimmed = remainder.trim();
+    if (trimmed.length() < user.length()) {
+      return false;
+    }
+    if (!trimmed.regionMatches(true, 0, user, 0, user.length())) {
+      return false;
+    }
+    return trimmed.length() == user.length() || Character.isWhitespace(trimmed.charAt(user.length()));
   }
 
   @Nullable
